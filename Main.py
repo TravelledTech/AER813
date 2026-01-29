@@ -58,14 +58,15 @@ class Cam:
         self.video_label.place(x=0, y=0, relwidth=1, relheight=1)
         
         tempText = ttk.Label(left_frame, textvariable=self.infoTxt,
+                             background = "white",
                              foreground = "green",
-                             font =("Segoe UI", 8))
+                             font =("Segoe UI", 6))
         tempText.place(
             relx=0.0,
             rely=0.0,
             anchor="nw",
-            x=5,
-            y=40
+            x=1,
+            y=35
         )
         tempText.lift()
 
