@@ -30,6 +30,8 @@ class Cam:
         self.theta = 0  # Rotation
         self.xPos = 0
         self.yPos = 0
+        self.xRot = 0
+        self.yRot = 0
         
         self.infoTxt = tk.StringVar()
         self.infoTxt.set("X = \nY = \nXRot = \nYRot = ")   # Show position info and stuff
@@ -57,20 +59,20 @@ class Cam:
         self.video_label = ttk.Label(left_frame)
         self.video_label.place(x=0, y=0, relwidth=1, relheight=1)
         
-        tempText = ttk.Label(left_frame, textvariable=self.infoTxt,
-                             background = "white",
-                             foreground = "green",
-                             font =("Segoe UI", 6))
-        tempText.place(
-            relx=0.0,
-            rely=0.0,
-            anchor="nw",
-            x=1,
-            y=35
-        )
-        tempText.lift()
-
-
+        # # Display for the info (Switch to text that only appears when the video shows up)
+        # tempText = ttk.Label(left_frame, textvariable=self.infoTxt,
+        #                      background = "white",
+        #                      foreground = "green",
+        #                      width = 25,
+        #                      font =("Segoe UI", 6))
+        # tempText.place(
+        #     relx=0.0,
+        #     rely=0.0,
+        #     anchor="nw",
+        #     x=1,
+        #     y=35
+        # )
+        # tempText.lift()
 
         ttk.Label(right_frame, text="Control Panel",
                   foreground="white",
@@ -87,8 +89,9 @@ class Cam:
                         command=self.toggle_UI).pack(anchor="center", pady=5)
         
         # Radio Buttons (Switch between camera types)
-        self.mode_var = tk.StringVar(value=0)
+        self.mode_var = tk.StringVar(value=1) # Determines which button it starts on (0, 1, 2)
         
+        # Need to switch names and functions later (maybe to Normal, Contours, Normal + Contours)
         ttk.Radiobutton(
             right_frame,
             text="Temp1",
@@ -252,6 +255,7 @@ class Cam:
                     self.yPos = int(np.sin(np.deg2rad(self.theta))*self.scale)
                     self.xPos = int(np.cos(np.deg2rad(self.theta))*self.scale)
                     
+                    # Draws target boxes
                     cv2.circle(output, (int(w/2) + self.xPos, int(h/2) + self.yPos), 14, (200, 0, 0), 2)
                     cv2.rectangle(output, (int(w/2)+self.xPos + 14, int(h/2) + self.yPos-1), (int(w/2)+self.xPos + 20, int(h/2) + self.yPos+1), (200, 0, 0), -1)
                     cv2.rectangle(output, (int(w/2)+self.xPos - 14, int(h/2) + self.yPos-1), (int(w/2)+self.xPos - 20, int(h/2) + self.yPos+1), (200, 0, 0), -1)
@@ -263,6 +267,9 @@ class Cam:
                     w2 = int(cx)
                     cv2.rectangle(output, (w2+1, h2), (w2, int(h/2)), (255, 0, 0), -1)
                     cv2.rectangle(output, (w2, h2+1), (int(w/2), h2), (255, 0, 0), -1)
+                    
+                    # Add the text box here after (need 4 total, xpos, ypos, xangle, yangle)
+                    # For now, use pixel distance but later change to actual distances
                 
                 # Draws the rest of the overlay
                 
@@ -278,9 +285,14 @@ class Cam:
                 cv2.rectangle(output, (int(w/2)+1, 0), (int(w/2)-1, h), (255, 255, 255), -1)
             
             # Camera Stuff
-            img = Image.fromarray(output).resize((640, 480)) # Change annotated <---> edges <---> Edges RBG
+            img = Image.fromarray(edges).resize((640, 480)) # Change annotated <---> edges <---> overlay
             tk_img = ImageTk.PhotoImage(img)
             self.root.after(0, self.update_frame, tk_img)
+            
+            cv2.putText(output, "X Position", (0, 0), cv2.FONT_HERSHEY_SIMPLEX, 8, (0, 200, 0), 1)
+            cv2.putText(output, "Y Position", (0, 10), cv2.FONT_HERSHEY_SIMPLEX, 8, (0, 200, 0), 1)
+            cv2.putText(output, "Y Rotation", (0, 20), cv2.FONT_HERSHEY_SIMPLEX, 8, (0, 200, 0), 1)
+            cv2.putText(output, "X Rotation", (0, 30), cv2.FONT_HERSHEY_SIMPLEX, 8, (0, 200, 0), 1)
             
         if self.cap:
             self.cap.release()
@@ -289,7 +301,7 @@ class Cam:
         self.video_label.imgtk = tk_img
         self.video_label.configure(image=tk_img)
         
-# ========== Buttons ==========
+    # ========== Buttons ==========
             
     def start_stream(self):
         self.cap = cv2.VideoCapture(0)
@@ -316,6 +328,14 @@ class Cam:
             print(True)
         else:
             print(False)
+            
+    #
+    #0    | 180
+    #-----+-----
+    #180  | 0
+    #
+    # Check the location of the ellipse, if center is above the horizontal, reverse x and y for the rotation
+    # After that check the position and which way it is facing, determine the actual direction from there
 
 # ---------------- RUN ----------------
 root = tk.Tk()
