@@ -53,13 +53,36 @@ class YOLOViewer:
         
         self.cap = cv2.VideoCapture(0)
 
-# ========== Camera ==========
+
     def stream_thread(self):
 
         while self.running:
             ret, frame = self.cap.read()
+            
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # ==== Rotating frame ==== (if needed)
+            #frame_rgb = cv2.rotate(frame_rgb, cv2.ROTATE_90_CLOCKWISE)
+            
+            # Edge Detection
+            grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            blurred = cv2.GaussianBlur(grey, (5, 5), 0)
+            edges = cv2.Canny(blurred, 50, 150)
+            
             annotated = frame_rgb.copy()
+            
+            img = Image.fromarray(edges).resize((640, 480)) # Change annotated <---> edges
+            tk_img = ImageTk.PhotoImage(img)
+            self.root.after(0, self.update_frame, tk_img)
+
+        if self.cap:
+            self.cap.release()
+            
+    def update_frame(self, tk_img):
+        self.video_label.imgtk = tk_img
+        self.video_label.configure(image=tk_img)
+        
+# ========== Camera ==========
             
     def start_stream(self):
         self.cap = cv2.VideoCapture(0)
@@ -69,7 +92,6 @@ class YOLOViewer:
     def stop_stream(self):
         self.running = False
         self.hasToggle = True
-        self.status.config(text="Stopped", foreground="orange")
 
     def quit_app(self):
         self.running = False
