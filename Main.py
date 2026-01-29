@@ -2,7 +2,6 @@ import tkinter as tk
 from tkinter import ttk
 from ttkthemes import ThemedStyle
 from PIL import Image, ImageTk
-from ultralytics import YOLO
 import cv2
 import requests
 import threading
@@ -31,6 +30,9 @@ class Cam:
         self.theta = 0  # Rotation
         self.xPos = 0
         self.yPos = 0
+        
+        self.infoTxt = tk.StringVar()
+        self.infoTxt.set("X = \nY = \nXRot = \nYRot = ")   # Show position info and stuff
 
         # GUI Layout
         root.title("Target Camera")
@@ -51,9 +53,23 @@ class Cam:
         right_frame.pack_propagate(False)
         right_frame.pack(side="right", fill="y")
 
-        # Video feed
+        # Video input stuff
         self.video_label = ttk.Label(left_frame)
-        self.video_label.pack(expand=True, fill="both")
+        self.video_label.place(x=0, y=0, relwidth=1, relheight=1)
+        
+        tempText = ttk.Label(left_frame, textvariable=self.infoTxt,
+                             foreground = "green",
+                             font =("Segoe UI", 8))
+        tempText.place(
+            relx=0.0,
+            rely=0.0,
+            anchor="nw",
+            x=5,
+            y=40
+        )
+        tempText.lift()
+
+
 
         ttk.Label(right_frame, text="Control Panel",
                   foreground="white",
@@ -229,6 +245,7 @@ class Cam:
                     self.phi = np.arccos(minor/major)
                     self.theta = angle
                     
+                    # Modify the scale of the scale here (but 200 seems to be pretty good)
                     self.scale = self.phi*200
                     
                     self.yPos = int(np.sin(np.deg2rad(self.theta))*self.scale)
@@ -298,6 +315,7 @@ class Cam:
             print(True)
         else:
             print(False)
+
 # ---------------- RUN ----------------
 root = tk.Tk()
 app = Cam(root)
