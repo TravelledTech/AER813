@@ -289,10 +289,10 @@ class Cam:
             tk_img = ImageTk.PhotoImage(img)
             self.root.after(0, self.update_frame, tk_img)
             
-            cv2.putText(output, "X Position", (0, 0), cv2.FONT_HERSHEY_SIMPLEX, 8, (0, 200, 0), 1)
-            cv2.putText(output, "Y Position", (0, 10), cv2.FONT_HERSHEY_SIMPLEX, 8, (0, 200, 0), 1)
-            cv2.putText(output, "Y Rotation", (0, 20), cv2.FONT_HERSHEY_SIMPLEX, 8, (0, 200, 0), 1)
-            cv2.putText(output, "X Rotation", (0, 30), cv2.FONT_HERSHEY_SIMPLEX, 8, (0, 200, 0), 1)
+            # cv2.putText(output, "X Position", (0, 0), cv2.FONT_HERSHEY_SIMPLEX, 8, (0, 200, 0), 1)
+            # cv2.putText(output, "Y Position", (0, 10), cv2.FONT_HERSHEY_SIMPLEX, 8, (0, 200, 0), 1)
+            # cv2.putText(output, "Y Rotation", (0, 20), cv2.FONT_HERSHEY_SIMPLEX, 8, (0, 200, 0), 1)
+            # cv2.putText(output, "X Rotation", (0, 30), cv2.FONT_HERSHEY_SIMPLEX, 8, (0, 200, 0), 1)
             
         if self.cap:
             self.cap.release()
