@@ -59,6 +59,7 @@ class Cam:
         self.video_label = ttk.Label(left_frame)
         self.video_label.place(x=0, y=0, relwidth=1, relheight=1)
         
+<<<<<<< HEAD
         # # Display for the info (Switch to text that only appears when the video shows up)
         # tempText = ttk.Label(left_frame, textvariable=self.infoTxt,
         #                      background = "white",
@@ -73,6 +74,21 @@ class Cam:
         #     y=35
         # )
         # tempText.lift()
+=======
+        tempText = ttk.Label(left_frame, textvariable=self.infoTxt,
+                             foreground = "green",
+                             font =("Segoe UI", 8))
+        tempText.place(
+            relx=0.0,
+            rely=0.0,
+            anchor="nw",
+            x=5,
+            y=40
+        )
+        tempText.lift()
+
+
+>>>>>>> parent of 33af519 (Update Main.py)
 
         ttk.Label(right_frame, text="Control Panel",
                   foreground="white",
