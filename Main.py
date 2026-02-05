@@ -35,7 +35,14 @@ class Cam:
         self.xAngl = 0      # Position of the actual nozzle
         self.yAngl = 0
         self.xQuad = 1    # Current position of x and y asis (1, -1 for position in quandrant)
-        self.yQuad = 1
+        self.yQuad = 1      # Dont really need these (maybe)
+        self.lastPos = [1, 1, 1]
+        
+        #For shadow instead of contour
+        self.facing_dir = 0
+        self.face_confidence = 0  # confidence accumulator
+        self.CONF_THRESH = 3      # frames required to flip
+        self.CONF_MAX = 5
         
         self.infoTxt = tk.StringVar()
         self.infoTxt.set("X = \nY = \nXRot = \nYRot = ")   # Show position info and stuff
@@ -250,7 +257,7 @@ class Cam:
                     # cx and cy for position of the target (find contours relative to that)
                     # CURRENTLY ONLY WORKS IF NO OTHER CONTOURS ARE VISIBLE
                     
-                    countX = 0  #Maybe later add weights (and filter out background contours)
+                    countX = 0  #Maybe later add weights (and filter out background contours by checking size of contours)
                     countY = 0
                     for cnt in contours:
                         
@@ -267,20 +274,37 @@ class Cam:
                             countY+=1
                         else:
                             countY-=1
-                        
-                        if cCx > cx:
-                            countX += 1
-                        else:
-                            countX -= 1
+                            
+                    # Only xquad is needed (for now)
                     if countY > 0:
-                        self.yQuad = 1
+                        self.facing_dir = -1
                     else:
-                        self.yQuad = -1
-                    if countX > 0:
-                        self.xQuad = 1
-                    else:
-                        self.xQuad = -1
-                        
+                        self.facing_dir = 1
+
+                    print(self.facing_dir)
+                    
+                    # For now, prevents a suddent bit flip but only works if its isolated. Does not work if its constantly flipping every 3 positions
+                    temp = self.facing_dir
+                    if self.facing_dir != self.lastPos[1]:
+                        temp = self.lastPos[1]
+                    elif self.facing_dir != self.lastPos[0]:
+                        temp = self.lastPos[0]
+                    elif self.facing_dir != self.lastPos[2]:
+                        temp = self.lastPos[2]
+                    
+                    self.lastPos[0] = self.lastPos[1]
+                    self.lastPos[1] = self.lastPos[2]
+                    self.lastPos[2] = self.facing_dir
+                    
+                    self.facing_dir = temp
+                    facing = self.facing_dir
+                    
+                    # # Colours instead
+                    
+                    # lab = cv2.cvtColor(output, cv2.COLOR_BGR2LAB)
+                    # L = lab[:, :, 0]
+                    # facing, Lf, Lb = self.resolve_facing_by_lightness(L, best_ellipse)
+                    
                     # ===========================
                     major = max(wid, hei)
                     minor = min(wid, hei)
@@ -288,10 +312,10 @@ class Cam:
                     self.theta = angle
                     
                     # Modify the scale of the scale here (but 200 seems to be pretty good)
-                    self.scale = self.phi*200
+                    self.scale = self.phi*150
                     
-                    self.xPos = int(np.sin(np.deg2rad(self.theta))*self.scale)  # Multiply by the quadrant multiplyer after 
-                    self.yPos = -int(np.cos(np.deg2rad(self.theta))*self.scale)
+                    self.xPos = int(np.sin(np.deg2rad(self.theta))*self.scale)*facing  # Multiply by the quadrant multiplyer after 
+                    self.yPos = -int(np.cos(np.deg2rad(self.theta))*self.scale)*facing
                     
                     cv2.circle(output, (int(w/2) + self.xPos, int(h/2) + self.yPos), 14, (200, 0, 0), 2)
                     cv2.rectangle(output, (int(w/2)+self.xPos + 14, int(h/2) + self.yPos-1), (int(w/2)+self.xPos + 20, int(h/2) + self.yPos+1), (200, 0, 0), -1)
@@ -365,6 +389,60 @@ class Cam:
             print(True)
         else:
             print(False)
+            
+    # def resolve_facing_by_lightness(self, L, best_ellipse):
+    #     (cx, cy), (w, h), angle = best_ellipse
+    #     cx, cy = int(cx), int(cy)
+    
+    #     # Ensure major axis consistency
+    #     if w < h:
+    #         w, h = h, w
+    #         angle += 90
+    
+    #     angle %= 180
+    #     theta = np.deg2rad(angle)
+    
+    #     # Ellipse mask
+    #     mask = np.zeros(L.shape, dtype=np.uint8)
+    #     cv2.ellipse(
+    #         mask,
+    #         ((cx, cy), (int(w), int(h)), angle),
+    #         255,
+    #         -1
+    #     )
+    
+    #     ys, xs = np.indices(L.shape)
+    #     xs -= cx
+    #     ys -= cy
+    
+    #     # Rotate coords into ellipse frame
+    #     xr = xs * np.cos(theta) + ys * np.sin(theta)
+    
+    #     front = np.logical_and(mask == 255, xr > 0)
+    #     back  = np.logical_and(mask == 255, xr < 0)
+    
+    #     if np.count_nonzero(front) < 50 or np.count_nonzero(back) < 50:
+    #         return self.facing_dir, 0, 0
+    
+    #     front_L = np.mean(L[front])
+    #     back_L  = np.mean(L[back])
+    
+    #     new_dir = 1 if front_L > back_L else -1
+    
+    #     # Temporal stability (very important)
+    #     if new_dir == self.facing_dir:
+    #         self.face_confidence += 1
+    #     else:
+    #         self.face_confidence -= 1
+    
+    #     self.face_confidence = np.clip(
+    #         self.face_confidence, -self.CONF_MAX, self.CONF_MAX
+    #     )
+    
+    #     if abs(self.face_confidence) >= self.CONF_THRESH:
+    #         self.facing_dir = new_dir
+    
+    #     return self.facing_dir, front_L, back_L
 
 # ---------------- RUN ----------------
 root = tk.Tk()
