@@ -22,7 +22,7 @@ class Cam:
         self.display_mode = 0
         self.prev_ellipse = None
         self.prev_center = None
-        self.velocity = np.zeros(2, dtype=np.float32)
+        self.velocity = np.zeros(2, dtype=np.float32)   # <- used for estimating the next position of the ellipse
         
         # Circle Geometry
         self.scale = 0 # How much the angle thing is scaled to (90 x scale for max), (Will depend on phi)
@@ -34,6 +34,8 @@ class Cam:
         self.y = 0
         self.xAngl = 0      # Position of the actual nozzle
         self.yAngl = 0
+        self.xQuad = 1    # Current position of x and y asis (1, -1 for position in quandrant)
+        self.yQuad = 1
         
         self.infoTxt = tk.StringVar()
         self.infoTxt.set("X = \nY = \nXRot = \nYRot = ")   # Show position info and stuff
@@ -195,6 +197,7 @@ class Cam:
                     best_score = score
                     best_ellipse = ellipse
             
+            
             # ========== TRACK UPDATE ==========
             has_target = False
             
@@ -241,7 +244,44 @@ class Cam:
                         angle += 90
                         
                     angle = angle % 180
+                    
+                    # Add the edge positioning here
+                    # do for cnt in contours again
+                    # cx and cy for position of the target (find contours relative to that)
+                    # CURRENTLY ONLY WORKS IF NO OTHER CONTOURS ARE VISIBLE
+                    
+                    countX = 0  #Maybe later add weights (and filter out background contours)
+                    countY = 0
+                    for cnt in contours:
                         
+                        CofM_C = cv2.moments(cnt)
+                        
+                        if CofM_C["m00"] != 0:
+                            cCy = CofM_C["m10"]/CofM_C["m00"]
+                            cCx = CofM_C["m01"]/CofM_C["m00"]
+                        
+                        # Adjust this later but if countour add if contour is above/right of
+                        # Original and vice versa
+                        
+                        if cCy > cy:
+                            countY+=1
+                        else:
+                            countY-=1
+                        
+                        if cCx > cx:
+                            countX += 1
+                        else:
+                            countX -= 1
+                    if countY > 0:
+                        self.yQuad = 1
+                    else:
+                        self.yQuad = -1
+                    if countX > 0:
+                        self.xQuad = 1
+                    else:
+                        self.xQuad = -1
+                        
+                    # ===========================
                     major = max(wid, hei)
                     minor = min(wid, hei)
                     self.phi = np.arccos(minor/major)
@@ -250,7 +290,7 @@ class Cam:
                     # Modify the scale of the scale here (but 200 seems to be pretty good)
                     self.scale = self.phi*200
                     
-                    self.xPos = int(np.sin(np.deg2rad(self.theta))*self.scale)
+                    self.xPos = int(np.sin(np.deg2rad(self.theta))*self.scale)  # Multiply by the quadrant multiplyer after 
                     self.yPos = -int(np.cos(np.deg2rad(self.theta))*self.scale)
                     
                     cv2.circle(output, (int(w/2) + self.xPos, int(h/2) + self.yPos), 14, (200, 0, 0), 2)
@@ -280,10 +320,10 @@ class Cam:
                 
                 # Another overlay for info
                 if has_target:
-                    cv2.putText(output, "Hello", (5, 15), cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 220, 0), 1)
-                    cv2.putText(output, "Hello", (5, 30), cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 220, 0), 1)
-                    cv2.putText(output, "Hello", (5, 45), cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 220, 0), 1)
-                    cv2.putText(output, "Hello", (5, 60), cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 220, 0), 1)
+                    cv2.putText(output, "Pos_X  = 1234", (5, 15), cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 220, 0), 1)
+                    cv2.putText(output, "Pos_Y  = 1234", (5, 30), cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 220, 0), 1)
+                    cv2.putText(output, "Angl_X = 1234", (5, 45), cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 220, 0), 1)
+                    cv2.putText(output, "Angl_Y = 1234", (5, 60), cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 220, 0), 1)
                     
             
             # Camera Stuff
