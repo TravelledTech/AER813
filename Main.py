@@ -186,7 +186,7 @@ class Cam:
                 )
                 fit_error = np.mean(dists)
                 
-                # --- Base score ---
+                # --- Base score ---, improve this later
                 score = -fit_error   # lower error = higher score
             
                 # ========== PREDICTION + ADAPTIVE GATING ========== (Smooths Motion)
