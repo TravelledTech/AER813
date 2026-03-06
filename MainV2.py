@@ -5,6 +5,9 @@
 # Docking GUI| Controls
 # make 2 more files, one for docking vision one for mace that feeds the data into this file
 
+# Main frame is 1536x824
+# Each subframe is 718x382
+
 import tkinter as tk
 from tkinter import ttk
 from ttkthemes import ThemedStyle
@@ -40,6 +43,7 @@ class Cam:
         
         self.xFrameHeight = 0
         self.xFrameWidth = 0
+        self.dBoxW = 0
         
         self.telemetry = [None, None, None, None, None, None, None, None, None]
         # [0] XPosition
@@ -172,15 +176,39 @@ class Cam:
         self.cam2_label.image = self.fallback
         self.cam2_label.pack(fill="both", expand=True)
         
-        self.dock_label = ttk.Label(self.BL_Frame, image=self.fallback)
-        self.dock_label.image = self.fallback
-        self.dock_label.pack(fill="both", expand=True)
+        #self.dock_label = ttk.Label(self.BL_Frame, image=self.fallback)
+        #self.dock_label.image = self.fallback
+        #self.dock_label.pack(fill="both", expand=True)
 
+        # Canvas
+        #718 x 382
+        # Center@ 359, 191
+        
+        x = self.xFrameWidth
+        y = self.xFrameHeight
+        
+        # Main docking takes up ~5/6th of the space (make sure its an even amount of pixels)
+        self.dBoxW = int(self.xFrameWidth*(5.0/6))
+        if not self.dBoxW%2 == 0:
+            self.dBoxW += 1
+        
+        x2 = self.dBoxW
+        mid = x2/2
+        
+        self.dockingUI = tk.Canvas(self.BL_Frame, width = self.xFrameWidth, height = self.xFrameHeight, background="black", highlightthickness=0)
+        
+        self.dockingUI.create_rectangle(0, y/2+1, x2, y/2-1, fill = "white")
+        self.dockingUI.create_rectangle(mid-1, 0, mid+1, y, fill = "white")
+        self.dockingUI.create_rectangle(x2, 0, x2+2, y, fill = "white")
+        self.dockingUI.create_rectangle(x2+6, 0, x2+8, y, fill = "white")
+        
 # ========= UI Functions Buttons =======
     def print_size(self, event):
         self.xFrameWidth = event.width
         self.xFrameHeight = event.height
-    
+        
+        print(self.xFrameWidth, self.xFrameHeight)
+        
         if self.xFrameWidth > 0 and self.xFrameHeight > 0:
             resized = self.fallback_pil.resize(
                 (self.xFrameWidth, self.xFrameHeight),
@@ -199,9 +227,6 @@ class Cam:
                 self.cam2_label.configure(image=photo)
                 self.cam2_label.image = photo
             
-            # Delete this one later once size is determined
-            self.dock_label.configure(image=photo)
-            self.dock_label.image = photo
     
     def updateStatus(self):
     

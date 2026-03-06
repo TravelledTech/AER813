@@ -363,7 +363,6 @@ class Cam:
         self.video_label.configure(image=tk_img)
         
 # ========== Buttons ==========
-            
     def start_stream(self):
         self.cap = cv2.VideoCapture(0)
         self.running = True
