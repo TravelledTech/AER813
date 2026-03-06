@@ -3,16 +3,50 @@ import cv2
 # Use this class for handling video streaming (Probably also use this for the edge detection and position handling)
 
 class video:
-    def __init__(self):
+    def __init__(self, URL):
         
         #Replace these with the final stream urls
-        self.URL1 = "temp"
-        self.URL2 = "temp"
+        self.URL = URL
+        self.cap = None
+        self.running = False
+        self.status = "OFFLINE"
+    
+    def startStream(self):
+        if self.running:
+            return
         
-        self.cap1 = cv2.videocapture(self.URL1)
-        self.cap2 = cv2.videocapture(self.URL2)
+        self.cap = cv2.VideoCapture(self.URL)
         
-    def retVideo1(self):
-        ret, frame  = self.cap1.read()
-        return frame #add overlay somewhere
+        if not self.cap.isOpened():
+            self.status = "ERROR"
+            print("Camera Failed")
+            self.cap = None
+            return
+        
+        self.running = True
+        self.status = "ONLINE"
+        
+    def endStream(self):
+        self.running = False
+        self.status = "OFFLINE"
+        
+        if self.cap:
+            self.cap.release()
+            self.cap = None
+        
+    def getFrame(self):
+        if not self.running or self.cap is None:
+            return None
+        
+        ret, frame = self.cap.read()
+        
+        if not ret:
+            self.status = "SEND FAILURE"
+            return None
+        
+        return frame
+    
+    def getStatus(self):
+        return self.status
+        
         

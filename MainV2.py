@@ -28,15 +28,32 @@ class Cam:
         self.root = root
         self.UIToggle = True
         
+        self.aspectRatio = 16/9
+        
         # If cam is on or off
         self.cam1Status = False
         self.cam2Status = False
         
+        self.cam1TxT = "OFFLINE"
+        self.cam2TxT = "OFFLINE"
+        self.generalTxT = "N/A"
+        
         self.xFrameHeight = 0
         self.xFrameWidth = 0
         
+        self.telemetry = [None, None, None, None, None, None, None, None, None]
+        # [0] XPosition
+        # [1] XVelocity
+        # [2] YPosition
+        # [3] YVelocity
+        # [4] ZPosition
+        # [5] ZVelocity
+        # [6] XRotation
+        # [7] YRotation
+        # [8] ZRotation
+        
         self.fallback_pil = Image.open("fallback.png")
-        self.fallback = ImageTk.PhotoImage(self.fallback_pil)
+        self.fallback = ImageTk.PhotoImage(self.fallback_pil, master=self.root)
         
         self.winSize = [root.winfo_screenwidth(), root.winfo_screenheight()]
         print(self.winSize)
@@ -50,6 +67,7 @@ class Cam:
         style = ThemedStyle(root)
         style.set_theme("equilux")
         root.configure(bg=style.lookup(".", "background"))
+        root.configure(bg="black")
         
         #Use 7 frames (probably inefficient?), maybe 5 instread
         
@@ -81,15 +99,39 @@ class Cam:
 
         self.TL_Frame.bind("<Configure>", self.print_size)
         
-        ttk.Label(self.BR_Frame, text = "Control Panel", foreground = "crimson", font = ("Segoe UI", 30, "bold underline")).grid(column = 0, row = 0, columnspan=2)
+        ttk.Label(self.BR_Frame, text = "Control Panel", foreground = "tomato3", font = ("Segoe UI", 30, "bold underline")).grid(column = 0, row = 0, columnspan=2)
         dataFrame = ttk.Frame(self.BR_Frame)
         buttonFrame = ttk.Frame(self.BR_Frame)
         dataFrame.grid(column=0, row=1, sticky="nsew", padx=5, pady=20)
         buttonFrame.grid(column=1, row=1, sticky="nsew", padx=5, pady=20)
 
-        # Buttons
+        # ========== UI Elements ==========
+        ttk.Label(dataFrame, text = "Status", foreground = "lightgray", anchor="center", font = ("Segoe UI", 14, "bold")).pack(fill="x")
+        
+        self.cam1Label = ttk.Label(
+            dataFrame,
+            text=f"Camera 1 Status: \t\t\t{self.cam1TxT}",
+            font=("Segoe UI", 10),
+            foreground = "lightgray"
+        ).pack(fill="x")
+        
+        self.cam2Label = ttk.Label(
+            dataFrame,
+            text=f"Camera 2 Status: \t\t\t{self.cam2TxT}",
+            font=("Segoe UI", 10),
+            foreground = "lightgray"
+        ).pack(fill="x")
+        
+        self.generalLabel = ttk.Label(
+            dataFrame,
+            text="General Status:\t\t\tN/A\n",
+            font=("Segoe UI", 10),
+            foreground = "lightgray"
+        ).pack(fill="x")
+        
         ttk.Label(dataFrame, text = "Current Data", foreground = "lightgray", anchor="center", font = ("Segoe UI", 14, "bold")).pack(fill="x")
         ttk.Label(buttonFrame, text = "Controls", foreground = "lightgray", anchor="center", font = ("Segoe UI", 14, "bold")).pack(fill="x")
+        
         ttk.Button(buttonFrame,
                                 text = "EXIT",
                                 command = self.exitApp).pack(fill="x")
@@ -105,9 +147,21 @@ class Cam:
                         variable=self.UIOverlay,
                         command=self.exitApp).pack()
         
-        ttk.Label(dataFrame, text = "xPosition = N/A\nxVelocity = N/A\nyPosition = N/A\nyVelocity = N/A\nzPosition = N/A\nzVelocity = N/A",
+        text = (
+            f"\tX-Position: \t\t{self.telemetry[0]}\n"
+            f"\tX-Velocity: \t\t{self.telemetry[1]}\n"
+            f"\tY-Position: \t\t{self.telemetry[2]}\n"
+            f"\tY-Velocity: \t\t{self.telemetry[3]}\n"
+            f"\tZ-Position: \t\t{self.telemetry[4]}\n"
+            f"\tZ-Velocity: \t\t{self.telemetry[5]}\n"
+            f"\tX-Rotation: \t\t{self.telemetry[6]}\n"
+            f"\tY-Rotation: \t\t{self.telemetry[7]}\n"
+            f"\tZ-Rotation: \t\t{self.telemetry[8]}\n"
+        )
+        
+        ttk.Label(dataFrame, text=text,
                   foreground = "lightgray",
-                  font = ("Segoe UI", 12)).pack(anchor="w")
+                  font = ("Segoe UI", 10)).pack(anchor="w")
         # Add some systems info here too I guess like camera status and stuff
         
         self.cam1_label = ttk.Label(self.TL_Frame, image=self.fallback)
@@ -121,22 +175,6 @@ class Cam:
         self.dock_label = ttk.Label(self.BL_Frame, image=self.fallback)
         self.dock_label.image = self.fallback
         self.dock_label.pack(fill="both", expand=True)
-        
-        # ttk.Label(self.TL_Frame, text="Camera 1",
-        #           foreground="lightgray",
-        #           background="darkgray",
-        #           font=("Segoe UI", 24, "bold")).pack(fill="both", expand = True)
-        
-        # ttk.Label(self.TR_Frame, text="Camera 2",
-        #           foreground="lightgray",
-        #           background="darkgray",
-        #           font=("Segoe UI", 24, "bold")).pack(fill="both", expand = True)
-        
-        # ttk.Label(self.BL_Frame, text="Target Cam",
-        #           foreground="lightgray",
-        #           background="darkgray",
-        #           font=("Segoe UI", 24, "bold")).pack(fill="both", expand = True)
-        
 
 # ========= UI Functions Buttons =======
     def print_size(self, event):
@@ -164,6 +202,18 @@ class Cam:
             # Delete this one later once size is determined
             self.dock_label.configure(image=photo)
             self.dock_label.image = photo
+    
+    def updateStatus(self):
+    
+        self.cam1TxT = self.cam1Video.getStatus()
+        self.cam2TxT = self.cam2Video.getStatus()
+    
+        self.cam1Status.config(text=f"Camera 1 Status: {self.cam1TxT}")
+        self.cam2Status.config(text=f"Camera 2 Status: {self.cam2TxT}")
+        
+    def updateTelemetry(self):
+        print("Not implemented yet")
+    
     
     def exitApp(self):
         self.running = False
