@@ -119,21 +119,21 @@ class Cam:
             text=f"Camera 1 Status: \t\t\t{self.cam1TxT}",
             font=("Segoe UI", 10),
             foreground = "lightgray"
-        ).pack(fill="x")
+        ).pack(anchor="center")
         
         self.cam2Label = ttk.Label(
             dataFrame,
             text=f"Camera 2 Status: \t\t\t{self.cam2TxT}",
             font=("Segoe UI", 10),
             foreground = "lightgray"
-        ).pack(fill="x")
+        ).pack(anchor="center")
         
-        self.generalLabel = ttk.Label(
-            dataFrame,
-            text="General Status:\t\t\tN/A\n",
-            font=("Segoe UI", 10),
-            foreground = "lightgray"
-        ).pack(fill="x")
+        # self.generalLabel = ttk.Label(
+        #     dataFrame,
+        #     text="General Status:\t\t\tN/A\n",
+        #     font=("Segoe UI", 10),
+        #     foreground = "lightgray"
+        # ).pack(anchor="center")
         
         ttk.Label(dataFrame, text = "Current Data", foreground = "lightgray", anchor="center", font = ("Segoe UI", 14, "bold")).pack(fill="x")
         ttk.Label(buttonFrame, text = "Controls", foreground = "lightgray", anchor="center", font = ("Segoe UI", 14, "bold")).pack(fill="x")
@@ -154,20 +154,20 @@ class Cam:
                         command=self.exitApp).pack()
         
         text = (
-            f"\tX-Position: \t\t{self.telemetry[0]}\n"
-            f"\tX-Velocity: \t\t{self.telemetry[1]}\n"
-            f"\tY-Position: \t\t{self.telemetry[2]}\n"
-            f"\tY-Velocity: \t\t{self.telemetry[3]}\n"
-            f"\tZ-Position: \t\t{self.telemetry[4]}\n"
-            f"\tZ-Velocity: \t\t{self.telemetry[5]}\n"
-            f"\tX-Rotation: \t\t{self.telemetry[6]}\n"
-            f"\tY-Rotation: \t\t{self.telemetry[7]}\n"
-            f"\tZ-Rotation: \t\t{self.telemetry[8]}\n"
+            f"\nX-Position: \t\t{self.telemetry[0]}\n"
+            f"X-Velocity: \t\t{self.telemetry[1]}\n"
+            f"Y-Position: \t\t{self.telemetry[2]}\n"
+            f"Y-Velocity: \t\t{self.telemetry[3]}\n"
+            f"Z-Position: \t\t{self.telemetry[4]}\n"
+            f"Z-Velocity: \t\t{self.telemetry[5]}\n"
+            f"X-Rotation: \t\t{self.telemetry[6]}\n"
+            f"Y-Rotation: \t\t{self.telemetry[7]}\n"
+            f"Z-Rotation: \t\t{self.telemetry[8]}\n"
         )
         
         ttk.Label(dataFrame, text=text,
                   foreground = "lightgray",
-                  font = ("Segoe UI", 10)).pack(anchor="w")
+                  font = ("Segoe UI", 10)).pack(anchor="center")
         # Add some systems info here too I guess like camera status and stuff
         
         self.cam1_label = ttk.Label(self.TL_Frame, image=self.fallback)
@@ -251,7 +251,7 @@ class Cam:
         
     def createUI(self, event):
         # Canvas
-        #718 x 382
+        #718 x 382 (on laptop)
         # Center@ 359, 191
         
         self.xFrameWidth = event.width
@@ -271,12 +271,15 @@ class Cam:
         mid = x2 / 2
         ymid = y/2
         
-        zCenter = x2+10 + int((x-x2+10)/2)
+        zCenter = x2+10 + int((x-x2-10)/2)
         
         self.dockingUI.create_line(0, y/2, x2, y/2, fill="white", width=2)
         self.dockingUI.create_line(mid, 0, mid, y, fill="white", width=2)
         self.dockingUI.create_line(x2+1, 0, x2+1, y, fill="white", width=2)
         self.dockingUI.create_line(x2+9, 0, x2+9, y, fill="white", width=2)
+        
+        self.dockingUI.create_line(x-1, 0, x-1, y, fill="white", width=2)
+        self.dockingUI.create_line(x-9, 0, x-9, y, fill="white", width=2)
         
         # Change this for pixel step
         step = 15
@@ -304,7 +307,32 @@ class Cam:
             else:
                 self.dockingUI.create_line(zCenter+14, i, zCenter-14, i, fill="white", width=2)
         
+        # Now add the position stuff
         
+        # X and Y position
+        self.xBar = self.dockingUI.create_line(mid, ymid+200, mid-120, ymid+200, fill="red", width=2)
+        self.yBar = self.dockingUI.create_line(mid-120, ymid, mid-120, ymid+200, fill="red", width=2)
+        
+        self.dockingUI.tag_lower(self.xBar)
+        self.dockingUI.tag_lower(self.yBar)
+        
+        testx = 100
+        testy = 100
+        
+        # Angle
+        self.reticle = []
+        self.reticle.append(self.dockingUI.create_oval(testx-15, testy-15, testx+15, testy+15, fill="black", outline = "lawngreen", width=3))
+        self.reticle.append(self.dockingUI.create_line(testx, testy+15, testx, testy+25, fill="lawngreen", width=2))
+        self.reticle.append(self.dockingUI.create_line(testx, testy-15, testx, testy-25, fill="lawngreen", width=2))
+        self.reticle.append(self.dockingUI.create_line(testx+15, testy, testx+25, testy, fill="lawngreen", width=2))
+        self.reticle.append(self.dockingUI.create_line(testx-15, testy, testx-25, testy, fill="lawngreen", width=2))
+        
+        for i in self.reticle:
+            self.dockingUI.tag_lower(i)
+        
+        # Z Position
+        self.zBar = self.dockingUI.create_line(x2+10, 50, x-10, 50, fill="red", width=2)
+        self.dockingUI.tag_lower(self.zBar)
 # ---------------- RUN ----------------
 root = tk.Tk()
 app = Cam(root)
