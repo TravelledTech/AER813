@@ -56,6 +56,8 @@ class Cam:
         # [7] YRotation
         # [8] ZRotation
         
+        self.root.bind("<Configure>", self.resize_main)
+        
         self.fallback_pil = Image.open("fallback.png")
         self.fallback = ImageTk.PhotoImage(self.fallback_pil, master=self.root)
         
@@ -76,7 +78,7 @@ class Cam:
         #Use 7 frames (probably inefficient?), maybe 5 instread
         
         self.main_frame = ttk.Frame(root)
-        self.main_frame.pack(fill="both", expand=True)
+        self.main_frame.place(relx=0.5, rely=0.5, anchor="center")
         
         # Used for making the cams full screen, make it so it expands if clicked and zooms back out when 'esc'
         self.LeftCamFull = ttk.Frame(root)
@@ -175,35 +177,15 @@ class Cam:
         self.cam2_label = ttk.Label(self.TR_Frame, image=self.fallback)
         self.cam2_label.image = self.fallback
         self.cam2_label.pack(fill="both", expand=True)
-        
-        #self.dock_label = ttk.Label(self.BL_Frame, image=self.fallback)
-        #self.dock_label.image = self.fallback
-        #self.dock_label.pack(fill="both", expand=True)
 
-        # Canvas
-        #718 x 382
-        # Center@ 359, 191
-        
-        x = self.xFrameWidth
-        y = self.xFrameHeight
-        
-        # Main docking takes up ~5/6th of the space (make sure its an even amount of pixels)
-        self.dBoxW = int(self.xFrameWidth*(5.0/6))
-        if not self.dBoxW%2 == 0:
-            self.dBoxW += 1
-        
-        x2 = self.dBoxW
-        mid = x2/2
-        
+        #Canvas (for docking UI)
         self.dockingUI = tk.Canvas(self.BL_Frame, width = self.xFrameWidth, height = self.xFrameHeight, background="black", highlightthickness=0)
+        self.dockingUI.pack(fill="both", expand=True)
         
-        self.dockingUI.create_rectangle(0, y/2+1, x2, y/2-1, fill = "white")
-        self.dockingUI.create_rectangle(mid-1, 0, mid+1, y, fill = "white")
-        self.dockingUI.create_rectangle(x2, 0, x2+2, y, fill = "white")
-        self.dockingUI.create_rectangle(x2+6, 0, x2+8, y, fill = "white")
+        self.BL_Frame.bind("<Configure>", self.createUI)
         
 # ========= UI Functions Buttons =======
-    def print_size(self, event):
+    def print_size(self, event):    # Also resizes the photos
         self.xFrameWidth = event.width
         self.xFrameHeight = event.height
         
@@ -244,6 +226,83 @@ class Cam:
         self.running = False
         self.root.destroy()
         
+    def resize_main(self, event):
+
+        win_w = self.root.winfo_width()
+        win_h = self.root.winfo_height()
+    
+        target_ratio = 16 / 9
+    
+        # determine max 16:9 size inside window
+        if win_w / win_h > target_ratio:
+            height = win_h
+            width = int(height * target_ratio)
+        else:
+            width = win_w
+            height = int(width / target_ratio)
+    
+        self.main_frame.place(
+            relx=0.5,
+            rely=0.5,
+            anchor="center",
+            width=width,
+            height=height
+        )
+        
+    def createUI(self, event):
+        # Canvas
+        #718 x 382
+        # Center@ 359, 191
+        
+        self.xFrameWidth = event.width
+        self.xFrameHeight = event.height
+    
+        x = self.xFrameWidth
+        y = self.xFrameHeight
+    
+        # clear old drawings
+        self.dockingUI.delete("all")
+    
+        self.dBoxW = int(x * (5.0/6))
+        if self.dBoxW % 2 != 0:
+            self.dBoxW += 1
+    
+        x2 = self.dBoxW
+        mid = x2 / 2
+        ymid = y/2
+        
+        zCenter = x2+10 + int((x-x2+10)/2)
+        
+        self.dockingUI.create_line(0, y/2, x2, y/2, fill="white", width=2)
+        self.dockingUI.create_line(mid, 0, mid, y, fill="white", width=2)
+        self.dockingUI.create_line(x2+1, 0, x2+1, y, fill="white", width=2)
+        self.dockingUI.create_line(x2+9, 0, x2+9, y, fill="white", width=2)
+        
+        # Change this for pixel step
+        step = 15
+        step2 = 20
+        
+        for i in range(step, int(mid), step):
+            if i%(step*2) == step:
+                self.dockingUI.create_line(mid+i, ymid+5, mid+i, ymid-5, fill="white", width=2)
+                self.dockingUI.create_line(mid-i, ymid+5, mid-i, ymid-5, fill="white", width=2)
+            else:
+                self.dockingUI.create_line(mid+i, ymid+8, mid+i, ymid-8, fill="white", width=2)
+                self.dockingUI.create_line(mid-i, ymid+8, mid-i, ymid-8, fill="white", width=2)
+                
+        for i in range(step, int(y/2), step):
+            if i%(step*2) == step:
+                self.dockingUI.create_line(mid+5, ymid+i, mid-5, ymid+i, fill="white", width=2)
+                self.dockingUI.create_line(mid+5, ymid-i, mid-5, ymid-i, fill="white", width=2)
+            else:
+                self.dockingUI.create_line(mid+8, ymid+i, mid-8, ymid+i, fill="white", width=2)
+                self.dockingUI.create_line(mid+8, ymid-i, mid-8, ymid-i, fill="white", width=2)
+                
+        for i in range(step2, y, step2):
+            if i%(step2*2) == step2:
+                self.dockingUI.create_line(zCenter+8, i, zCenter-8, i, fill="white", width=2)
+            else:
+                self.dockingUI.create_line(zCenter+14, i, zCenter-14, i, fill="white", width=2)
         
         
 # ---------------- RUN ----------------
