@@ -273,6 +273,7 @@ class Cam:
         
         zCenter = x2+10 + int((x-x2-10)/2)
         
+        # UI Background (the lines)
         self.dockingUI.create_line(0, y/2, x2, y/2, fill="white", width=2)
         self.dockingUI.create_line(mid, 0, mid, y, fill="white", width=2)
         self.dockingUI.create_line(x2+1, 0, x2+1, y, fill="white", width=2)
@@ -285,6 +286,7 @@ class Cam:
         step = 15
         step2 = 20
         
+        # The unit markers
         for i in range(step, int(mid), step):
             if i%(step*2) == step:
                 self.dockingUI.create_line(mid+i, ymid+5, mid+i, ymid-5, fill="white", width=2)
@@ -301,8 +303,8 @@ class Cam:
                 self.dockingUI.create_line(mid+8, ymid+i, mid-8, ymid+i, fill="white", width=2)
                 self.dockingUI.create_line(mid+8, ymid-i, mid-8, ymid-i, fill="white", width=2)
                 
-        for i in range(step2, y, step2):
-            if i%(step2*2) == step2:
+        for i in range(y-step2, 0, -step2):
+            if (y-i)%(step2*2) == step2:
                 self.dockingUI.create_line(zCenter+8, i, zCenter-8, i, fill="white", width=2)
             else:
                 self.dockingUI.create_line(zCenter+14, i, zCenter-14, i, fill="white", width=2)
@@ -312,6 +314,7 @@ class Cam:
         # X and Y position
         self.xBar = self.dockingUI.create_line(mid, ymid+200, mid-120, ymid+200, fill="red", width=2)
         self.yBar = self.dockingUI.create_line(mid-120, ymid, mid-120, ymid+200, fill="red", width=2)
+        self.cBar = self.dockingUI.create_oval(mid-120+4, ymid+200-4, mid-120-4, ymid+200+4, fill="red", width=0)
         
         self.dockingUI.tag_lower(self.xBar)
         self.dockingUI.tag_lower(self.yBar)
@@ -319,7 +322,7 @@ class Cam:
         testx = 100
         testy = 100
         
-        # Angle
+        # Angle reticle
         self.reticle = []
         self.reticle.append(self.dockingUI.create_oval(testx-15, testy-15, testx+15, testy+15, fill="black", outline = "lawngreen", width=3))
         self.reticle.append(self.dockingUI.create_line(testx, testy+15, testx, testy+25, fill="lawngreen", width=2))
