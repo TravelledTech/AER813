@@ -60,7 +60,6 @@ class video:
             elif self.mode == 3:
                 self.output = self.cornerDetection(grey, frameRGB)
             
-    
     def contourDetection(self, grey, frame):
         # =========== Edge Detection ===========
         blurred = cv2.GaussianBlur(grey, (5, 5), 0)
@@ -226,7 +225,7 @@ class video:
                 x, y, w, h = cv2.boundingRect(square)
                 ratio = w / float(h)
                 
-                if ratio < 0.8 or ratio > 1.2:  #Makess sure its square shaped
+                if ratio < 0.8 or ratio > 1.2:  #Makes sure its square shaped (maybe increase to make it)
                     continue
                 
                 self.poly = square
@@ -263,8 +262,7 @@ class video:
         self.countFrames += 1
         print(self.countFrames)
         return annotated
-        
-        
+              
       # Starts Stream (Change camera info here)         
     def startStream(self):
         if self.running:
@@ -287,6 +285,11 @@ class video:
         self.status = "ONLINE"
         
         threading.Thread(target=self.stream_thread, daemon=True).start()    #Starts stream thread once running
+    
+    def setMode(self, x):
+        self.mode = x
+        self.poly = None
+        self.countFrames = 0
     
     # Ends stream
     def endStream(self):
