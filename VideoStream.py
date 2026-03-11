@@ -13,11 +13,12 @@ import threading
 #For corner detection
 #https://docs.opencv.org/4.x/dc/d0d/tutorial_py_features_harris.html
 #https://docs.opencv.org/4.x/d4/d8c/tutorial_py_shi_tomasi.html
+# https://docs.opencv.org/3.4/d4/dee/tutorial_optical_flow.html
 
 class video:
     def __init__(self, URL):
         
-        #Replace these with the final stream urls
+        # Initial Variables
         self.URL = URL
         self.cap = None
         self.running = False
@@ -37,6 +38,8 @@ class video:
         self.delay = 10 #elay between each frame (in ms)
         
         self.poly = None
+        
+        self.corners = [None, None, None, None]
 
     # Runs the streaming thread (all camera stuff will happen here)
     def stream_thread(self):
@@ -59,7 +62,6 @@ class video:
             
             elif self.mode == 3:
                 self.output = self.cornerDetection(grey, frameRGB)
-            
     
     def contourDetection(self, grey, frame):
         # =========== Edge Detection ===========
@@ -192,7 +194,7 @@ class video:
             return annotated
         elif self.mode == 2:
             return edges
-        
+    
     def cornerDetection(self, grey, frame):
         # Detect a square every so often (maybe every 60 frames (or every second))
         # Find corners in the right range
@@ -201,7 +203,7 @@ class video:
         
         annotated = frame.copy()
         
-        if self.countFrames%30 == 0:    #Refinds the square every X frames
+        if True: #self.countFrames%20 == 0:    #Refinds the square every X frames
 
             # ========== Find contours ==========
             contours, _ = cv2.findContours(
@@ -223,16 +225,21 @@ class video:
                 if area < 800:      #Min area
                     continue
                 
-                x, y, w, h = cv2.boundingRect(square)
-                ratio = w / float(h)
+                rect = cv2.minAreaRect(cnt)
+                (x, y), (w, h), angle = rect
+                if h == 0 or w == 0:
+                    continue
+                ratio = min(w, h) / max(w, h)
                 
-                if ratio < 0.8 or ratio > 1.2:  #Makess sure its square shaped
+                if ratio < 0.8:
                     continue
                 
                 self.poly = square
                 
         if self.poly is None:   # Makes sure always finds a square before proceeding
             self.countFrames -= 1
+            
+        # =========== Corner Detection ===========
         else:
             cv2.drawContours(annotated, [self.poly], 0, (0,255,0), 2)
             
@@ -242,10 +249,15 @@ class video:
             cy = int(M["m01"] / M["m00"])
             
             x, y, w, h = cv2.boundingRect(self.poly)
+            area = cv2.contourArea(self.poly)
             
+            ran = int((area**.5)/(2**.5))  # Maximum distance away from center
+            
+            mask = np.zeros(blurred.shape, dtype=np.uint8)
+            cv2.circle(mask, (cx, cy), ran, 255, -1)
         
             # cv2.goodFeaturesToTrack(image, maxCorners, qualityLevel, minDistance)
-            corners = cv2.goodFeaturesToTrack(blurred,200,0.003,20)
+            corners = cv2.goodFeaturesToTrack(blurred,50,0.01,20, mask=mask)
             
             if corners is not None:
                 corners = corners.astype(int)
@@ -253,19 +265,17 @@ class video:
                     x, y = corner.ravel()
                     
                     dist = np.sqrt((cx-x)**2 + (cy-y)**2)
-                    ran = 1.1*np.sqrt((w/2)**2+(h/2)**2)  # Maximum distance away from center
+                    diff = abs((ran-dist)/ran)
                     
-                    if dist > ran:
+                    if diff > 0.1:
                         continue
-                    
                     cv2.circle(annotated, (x, y), 5, (255, 0, 0), -1)
         
         self.countFrames += 1
         print(self.countFrames)
         return annotated
         
-        
-      # Starts Stream (Change camera info here)         
+    # Starts Stream (Change camera info here)         
     def startStream(self):
         if self.running:
             return
