@@ -200,7 +200,7 @@ class video:
         elif self.mode == 2:
             return edges
     
-    def testPreproccessing(self, grey, frame):
+    def testPreproccessing(self, grey, frame):  # Test different filters
         if self.prev_grey is not None:
             blended = cv2.addWeighted(grey, 0.8, self.prev_grey, 0.2, 0)
             self.prev_grey = grey.copy()
@@ -214,13 +214,6 @@ class video:
         mask = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         return mask
-        # kernel = np.ones((3,3), np.uint8)
-        # gradient = cv2.morphologyEx(blended, cv2.MORPH_GRADIENT, kernel)
-        
-        # _, thresh = cv2.threshold(gradient, 20, 255, cv2.THRESH_BINARY)
-        # closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-        
-        # return closed
     
     def cornerDetection(self, grey, frame):
         edges = self.testPreproccessing(grey, frame)
@@ -240,28 +233,29 @@ class video:
             for i, cnt in enumerate(contours):
                 area = cv2.contourArea(cnt)
                 
-                # --- THE FRAME KILLER FILTERS ---
-                # 1. Ignore anything that takes up more than 80% of the screen
-                if area > (screen_area * 0.8): continue
-                # 2. Ignore tiny noise
-                if area < 1000: continue
+                if area > (screen_area * 0.8):  # Makes sure the area isnt just the entire screen
+                    continue     
                 
-                # 3. Hierarchy Check: If it's the outermost possible thing, 
-                # and it's huge, it's probably the frame.
-                # hierarchy[0][i][3] is the Parent index. -1 means no parent.
-                parent_idx = hierarchy[0][i][3]
+                if area < 1000:  # Filters small objects
+                    continue
+                
+                # # 3. Hierarchy Check: If it's the outermost possible thing, 
+                # # and it's huge, it's probably the frame.
+                # # hierarchy[0][i][3] is the Parent index. -1 means no parent.
 
-                hull = cv2.convexHull(cnt)
+                hull = cv2.convexHull(cnt)  # Bounding Box
                 peri = cv2.arcLength(hull, True)
                 approx = cv2.approxPolyDP(hull, 0.04 * peri, True)
 
-                # Relaxed geometry for rotation
-                if len(approx) == 4:
+                if len(approx) == 4:    # Makes sure its 4 sided
                     x, y, w, h = cv2.boundingRect(hull)
+                    parent_idx = hierarchy[0][i][3]
                     ratio = min(w, h) / max(w, h)
                     
-                    # Ensure it's not touching the very edge of the camera sensor
-                    if x > 2 and y > 2 and (x + w) < (img_w - 2):
+                    if ratio < 0.8 or parent_idx == -1:
+                        continue
+                    
+                    if x > 2 and y > 2 and (x + w) < (img_w - 2):   # Ensure it's not touching the very edge of the camera sensor
                         if area > max_area:
                             max_area = area
                             best_candidate = approx
