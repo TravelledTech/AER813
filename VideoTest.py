@@ -104,10 +104,13 @@ class App:
         
     def temp1(self):
         self.display_mode = 0
+        self.vid.setMode(3)
     def temp2(self):
         self.display_mode = 1
+        self.vid.setMode(2)
     def temp3(self):
         self.display_mode = 2
+        self.vid.setMode(1)
 
 
 if __name__ == "__main__":
