@@ -13,18 +13,33 @@ import threading
 #For corner detection
 #https://docs.opencv.org/4.x/dc/d0d/tutorial_py_features_harris.html
 #https://docs.opencv.org/4.x/d4/d8c/tutorial_py_shi_tomasi.html
-# https://docs.opencv.org/3.4/d4/dee/tutorial_optical_flow.html
+#https://docs.opencv.org/3.4/d4/dee/tutorial_optical_flow.html
+
+#Maybe make a different file for spinning and circle detection?
+#Maybe make a seperate version for horizontal viewing
 
 class video:
     def __init__(self, URL):
         
-        # Initial Variables
+        #Stuff for camera
         self.URL = URL
         self.cap = None
         self.running = False
         self.status = "OFFLINE"
-        self.mode = 3   #0 = Nothing, 1 = ellipse detection, 2 = ellipse detection (but contours), 3 = corner detection, 4 = vertical line detection (not sure if I will use it)
+        self.mode = 3
+        # 0 = Normal
+        # 1 = Ellipse
+        # 2 = Ellipse Contours
+        # 3 = Spinning
+        # 4 = Spinning contours
         
+        # Camera specs
+        self.fps = 60
+        self.frameTime = 1.0/60 #Time between frames
+        self.xRes = 1280
+        self.yRes = 720
+        
+        #Stuff for ellipse tracking
         self.hasFound = False
         self.countFrames = 0
         
@@ -39,10 +54,10 @@ class video:
         
         self.poly = None
         
-        self.corners = [None, None, None, None]
+        #Stuff for spin rate
+        self.prev_grey = None   #Use previous frame combined with new one tp reduce motion blur effects
+        self.corners = [] #Store the previous corners (maybe store multiple for future smoothing and checking)
         
-        #Temp
-        self.prev_grey = None
 
 
     # Runs the streaming thread (all camera stuff will happen here)
@@ -55,23 +70,51 @@ class video:
             
             frameRGB = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
-            # ==== Rotating frame ==== (if needed)
+            # ==== Rotating frame ==== (if needed) (probably not)
             #frame_rgb = cv2.rotate(frame_rgb, cv2.ROTATE_90_CLOCKWISE)
             
             
             grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             
-            if self.mode == 1 or self.mode == 2:
-                self.output = self.contourDetection(grey, frameRGB)
-            
+            #Change whats being outputted
+            if self.mode == 0:
+                self.output = frameRGB
+            elif self.mode == 1:
+                self.output = self.contourDetection(grey, frame)
+            elif self.mode == 2:
+                self.output = self.contourPreprocessing(grey, frame)
             elif self.mode == 3:
-                self.output = self.cornerDetection(grey, frameRGB)
-                #self.output = self.testPreproccessing(grey, frameRGB)
+                self.output = self.cornerDetection(grey, frame)
+            else:
+                self.output = self.cornerPreproccessing(grey, frame)
     
-    def contourDetection(self, grey, frame):
-        # =========== Edge Detection ===========
+    #Image preprocessing for contour (ellipse) Detection
+    def contourPreprocessing(self, grey, frame):
         blurred = cv2.GaussianBlur(grey, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
+        return cv2.Canny(blurred, 50, 150)
+    
+    #Image preprocessing for corner (spinning) Detection
+    def cornerPreproccessing(self, grey, frame):
+        #Combines the previous and current frame to help reduce effects of motion blur
+        if self.prev_grey is not None:
+            blended = cv2.addWeighted(grey, 0.8, self.prev_grey, 0.2, 0)
+            self.prev_grey = grey.copy()
+        else:
+            self.prev_grey = grey.copy()
+            blended = grey
+        
+        #Different filters compared to the previous one
+        thick_blur = cv2.medianBlur(blended, 7)
+        thresh = cv2.adaptiveThreshold(thick_blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, 7)
+        kernel = np.ones((5,5), np.uint8)
+        mask = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        return mask
+    
+    #Finds the ellipse (or engine bell), actual coordinates will be processed in a different file
+    def contourDetection(self, grey, frame):
+        # =========== Edge Detection =========== (Moved to a different function)
+        edges = self.contourPreprocessing(grey, frame)
         
         annotated = frame.copy()
 
@@ -195,28 +238,11 @@ class video:
         if self.outVar >= 20:
             self.hasFound = False
         
-        if self.mode == 1:
-            return annotated
-        elif self.mode == 2:
-            return edges
+        return annotated
     
-    def testPreproccessing(self, grey, frame):  # Test different filters
-        if self.prev_grey is not None:
-            blended = cv2.addWeighted(grey, 0.8, self.prev_grey, 0.2, 0)
-            self.prev_grey = grey.copy()
-        else:
-            self.prev_grey = grey.copy()
-            blended = grey
-        
-        thick_blur = cv2.medianBlur(blended, 7)
-        thresh = cv2.adaptiveThreshold(thick_blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, 7)
-        kernel = np.ones((5,5), np.uint8)
-        mask = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        return mask
-    
+    #Finds the spin rate (kinda bad right now)
     def cornerDetection(self, grey, frame):
-        edges = self.testPreproccessing(grey, frame)
+        edges = self.cornerPreproccessing(grey, frame)
         annotated = frame.copy()
         
         # Get image dimensions to set limits
@@ -266,6 +292,7 @@ class video:
         
         return annotated
     
+    #old (bad) code
     # def cornerDetection(self, grey, frame):
     #     # Detect a square every so often (maybe every 60 frames (or every second))
     #     # Find corners in the right range
@@ -356,9 +383,9 @@ class video:
         self.cap = cv2.VideoCapture(self.URL)
         
         # Change resolution here
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        self.cap.set(cv2.CAP_PROP_FPS, 60)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.xRes)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.yRes)
+        self.cap.set(cv2.CAP_PROP_FPS, self.fps)
         
         if not self.cap.isOpened():
             self.status = "ERROR"
@@ -392,6 +419,7 @@ class video:
     def getEllipse(self):
         return self.ellipse
     
+    # Set Camera modex
     def setMode(self, mode):
         self.mode = mode
         

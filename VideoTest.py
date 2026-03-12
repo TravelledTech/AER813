@@ -1,4 +1,4 @@
-#Videostream Test File
+#Videostream Test File (use MainV2 when cameras arrive)
 import tkinter as tk
 from tkinter import ttk
 from ttkthemes import ThemedStyle
@@ -39,26 +39,42 @@ class App:
         
         ttk.Radiobutton(
             self.sidebar,
-            text="Normal",
+            text="Regular",
             variable=self.mode_var,
             value=0,
+            command=self.temp0
+        ).pack(anchor="w", pady=2)
+        
+        ttk.Radiobutton(
+            self.sidebar,
+            text="Position",
+            variable=self.mode_var,
+            value=1,
             command=self.temp1
         ).pack(anchor="w", pady=2)
         
         ttk.Radiobutton(
             self.sidebar,
-            text="Contours",
+            text="PositionC",
             variable=self.mode_var,
-            value=1,
+            value=2,
             command=self.temp2
         ).pack(anchor="w", pady=2)
         
         ttk.Radiobutton(
             self.sidebar,
-            text="Temp3",
+            text="SpinRate",
             variable=self.mode_var,
-            value=2,
+            value=3,
             command=self.temp3
+        ).pack(anchor="w", pady=2)
+        
+        ttk.Radiobutton(
+            self.sidebar,
+            text="SpinRateC",
+            variable=self.mode_var,
+            value=4,
+            command=self.temp4
         ).pack(anchor="w", pady=2)
         
         ttk.Button(self.sidebar, text="Exit", command=self.quit_app).pack(fill="x", padx=10, pady=10)
@@ -102,16 +118,23 @@ class App:
         self.running = False
         self.root.destroy()
         
+    def temp0(self):
+        self.vid.setMode(0)
+        
     def temp1(self):
-        self.display_mode = 0
-        self.vid.setMode(3)
-    def temp2(self):
-        self.display_mode = 1
-        self.vid.setMode(2)
-    def temp3(self):
-        self.display_mode = 2
         self.vid.setMode(1)
-
+        
+    def temp2(self):
+        self.vid.setMode(2)
+        
+    def temp3(self):
+        self.vid.setMode(3)
+        
+    def temp4(self):
+        self.vid.setMode(4)
+        
+    def temp5(self):
+        self.vid.setMode(5)
 
 if __name__ == "__main__":
     root = tk.Tk()
