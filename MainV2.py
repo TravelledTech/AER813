@@ -55,6 +55,7 @@ class Cam:
         # [6] XRotation
         # [7] YRotation
         # [8] ZRotation
+        # Maybe get rid of velocity stuff
         
         self.root.bind("<Configure>", self.resize_main)
         
@@ -128,13 +129,6 @@ class Cam:
             foreground = "lightgray"
         ).pack(anchor="center")
         
-        # self.generalLabel = ttk.Label(
-        #     dataFrame,
-        #     text="General Status:\t\t\tN/A\n",
-        #     font=("Segoe UI", 10),
-        #     foreground = "lightgray"
-        # ).pack(anchor="center")
-        
         ttk.Label(dataFrame, text = "Current Data", foreground = "lightgray", anchor="center", font = ("Segoe UI", 14, "bold")).pack(fill="x")
         ttk.Label(buttonFrame, text = "Controls", foreground = "lightgray", anchor="center", font = ("Segoe UI", 14, "bold")).pack(fill="x")
         
@@ -142,16 +136,49 @@ class Cam:
                                 text = "EXIT",
                                 command = self.exitApp).pack(fill="x")
         ttk.Button(buttonFrame,
-                                text = "Start Camera",
+                                text = "Start Cameras",
                                 command = self.exitApp).pack(fill="x")
         ttk.Button(buttonFrame,
-                                text = "End Camera",
+                                text = "End Cameras",
                                 command = self.exitApp).pack(fill="x")
         
         self.UIOverlay = tk.BooleanVar(value=True)
         ttk.Checkbutton(buttonFrame, text="Enable Overlay",
                         variable=self.UIOverlay,
                         command=self.exitApp).pack()
+        
+        self.mode_var = tk.StringVar(value=0)
+        ttk.Radiobutton(
+            buttonFrame,
+            text="Standard Camera",
+            variable=self.mode_var,
+            value=0,
+            command=self.setMode1
+        ).pack(anchor="w", pady=2)
+        
+        ttk.Radiobutton(
+            buttonFrame,
+            text="Ellipse Detection",
+            variable=self.mode_var,
+            value=1,
+            command=self.setMode2
+        ).pack(anchor="w", pady=2)
+        
+        ttk.Radiobutton(
+            buttonFrame,
+            text="Rotation Detection",
+            variable=self.mode_var,
+            value=2,
+            command=self.setMode3
+        ).pack(anchor="w", pady=2)
+        
+        ttk.Radiobutton(
+            buttonFrame,
+            text="Contours",
+            variable=self.mode_var,
+            value=3,
+            command=self.setMode3
+        ).pack(anchor="w", pady=2)
         
         text = (
             f"\nX-Position: \t\t{self.telemetry[0]}\n"
@@ -163,7 +190,7 @@ class Cam:
             f"X-Rotation: \t\t{self.telemetry[6]}\n"
             f"Y-Rotation: \t\t{self.telemetry[7]}\n"
             f"Z-Rotation: \t\t{self.telemetry[8]}\n"
-        )
+        )   # Maybe remove velocity
         
         ttk.Label(dataFrame, text=text,
                   foreground = "lightgray",
@@ -248,6 +275,18 @@ class Cam:
             width=width,
             height=height
         )
+      
+    def setMode1(self): #Standard Cam
+        return 0
+    
+    def setMode2(self): #Ellipse Cam
+        return 0
+    
+    def setMode3(self): #Rotation Cam
+        return 0
+    
+    def setMode4(self): #Contour Cam
+        return 0
         
     def createUI(self, event):
         # Canvas
