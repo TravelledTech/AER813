@@ -13,11 +13,12 @@ import threading
 #For corner detection
 #https://docs.opencv.org/4.x/dc/d0d/tutorial_py_features_harris.html
 #https://docs.opencv.org/4.x/d4/d8c/tutorial_py_shi_tomasi.html
+# https://docs.opencv.org/3.4/d4/dee/tutorial_optical_flow.html
 
 class video:
     def __init__(self, URL):
         
-        #Replace these with the final stream urls
+        # Initial Variables
         self.URL = URL
         self.cap = None
         self.running = False
@@ -37,6 +38,12 @@ class video:
         self.delay = 10 #elay between each frame (in ms)
         
         self.poly = None
+        
+        self.corners = [None, None, None, None]
+        
+        #Temp
+        self.prev_grey = None
+
 
     # Runs the streaming thread (all camera stuff will happen here)
     def stream_thread(self):
@@ -59,7 +66,8 @@ class video:
             
             elif self.mode == 3:
                 self.output = self.cornerDetection(grey, frameRGB)
-            
+                #self.output = self.testPreproccessing(grey, frameRGB)
+    
     def contourDetection(self, grey, frame):
         # =========== Edge Detection ===========
         blurred = cv2.GaussianBlur(grey, (5, 5), 0)
@@ -191,79 +199,162 @@ class video:
             return annotated
         elif self.mode == 2:
             return edges
+    
+    def testPreproccessing(self, grey, frame):
+        if self.prev_grey is not None:
+            blended = cv2.addWeighted(grey, 0.8, self.prev_grey, 0.2, 0)
+            self.prev_grey = grey.copy()
+        else:
+            self.prev_grey = grey.copy()
+            blended = grey
         
+        thick_blur = cv2.medianBlur(blended, 7)
+        thresh = cv2.adaptiveThreshold(thick_blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, 7)
+        kernel = np.ones((5,5), np.uint8)
+        mask = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        return mask
+        # kernel = np.ones((3,3), np.uint8)
+        # gradient = cv2.morphologyEx(blended, cv2.MORPH_GRADIENT, kernel)
+        
+        # _, thresh = cv2.threshold(gradient, 20, 255, cv2.THRESH_BINARY)
+        # closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+        
+        # return closed
+    
     def cornerDetection(self, grey, frame):
-        # Detect a square every so often (maybe every 60 frames (or every second))
-        # Find corners in the right range
-        blurred = cv2.GaussianBlur(grey, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
-        
+        edges = self.testPreproccessing(grey, frame)
         annotated = frame.copy()
         
-        if self.countFrames%30 == 0:    #Refinds the square every X frames
+        # Get image dimensions to set limits
+        img_h, img_w = edges.shape[:2]
+        screen_area = img_h * img_w
 
-            # ========== Find contours ==========
-            contours, _ = cv2.findContours(
-                edges,
-                cv2.RETR_EXTERNAL,
-                cv2.CHAIN_APPROX_SIMPLE     #SWITCH SIMPLE <---> NONE
-            )  
-            
-            for cnt in contours:
-                epsilon = 0.02 * cv2.arcLength(cnt, True)
-                square = cv2.approxPolyDP(cnt, epsilon, True)
-                
-                # ========== Filters ===========
-                if not len(square) == 4:    #Makes sure it has 4 edges
-                    continue
-                
-                area = cv2.contourArea(square)
-                
-                if area < 800:      #Min area
-                    continue
-                
-                x, y, w, h = cv2.boundingRect(square)
-                ratio = w / float(h)
-                
-                if ratio < 0.8 or ratio > 1.2:  #Makes sure its square shaped (maybe increase to make it)
-                    continue
-                
-                self.poly = square
-                
-        if self.poly is None:   # Makes sure always finds a square before proceeding
-            self.countFrames -= 1
-        else:
-            cv2.drawContours(annotated, [self.poly], 0, (0,255,0), 2)
-            
-            M = cv2.moments(self.poly)
+        # Using RETR_TREE gives us the hierarchy [Next, Previous, Child, Parent]
+        contours, hierarchy = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        
+        best_candidate = None
+        max_area = 0
 
-            cx = int(M["m10"] / M["m00"])
-            cy = int(M["m01"] / M["m00"])
-            
-            x, y, w, h = cv2.boundingRect(self.poly)
-            
+        if hierarchy is not None:
+            for i, cnt in enumerate(contours):
+                area = cv2.contourArea(cnt)
+                
+                # --- THE FRAME KILLER FILTERS ---
+                # 1. Ignore anything that takes up more than 80% of the screen
+                if area > (screen_area * 0.8): continue
+                # 2. Ignore tiny noise
+                if area < 1000: continue
+                
+                # 3. Hierarchy Check: If it's the outermost possible thing, 
+                # and it's huge, it's probably the frame.
+                # hierarchy[0][i][3] is the Parent index. -1 means no parent.
+                parent_idx = hierarchy[0][i][3]
+
+                hull = cv2.convexHull(cnt)
+                peri = cv2.arcLength(hull, True)
+                approx = cv2.approxPolyDP(hull, 0.04 * peri, True)
+
+                # Relaxed geometry for rotation
+                if len(approx) == 4:
+                    x, y, w, h = cv2.boundingRect(hull)
+                    ratio = min(w, h) / max(w, h)
+                    
+                    # Ensure it's not touching the very edge of the camera sensor
+                    if x > 2 and y > 2 and (x + w) < (img_w - 2):
+                        if area > max_area:
+                            max_area = area
+                            best_candidate = approx
+
+        if best_candidate is not None:
+            self.poly = best_candidate
+            cv2.drawContours(annotated, [self.poly], 0, (0, 255, 0), 2)
         
-            # cv2.goodFeaturesToTrack(image, maxCorners, qualityLevel, minDistance)
-            corners = cv2.goodFeaturesToTrack(blurred,200,0.003,20)
-            
-            if corners is not None:
-                corners = corners.astype(int)
-                for corner in corners:
-                    x, y = corner.ravel()
-                    
-                    dist = np.sqrt((cx-x)**2 + (cy-y)**2)
-                    ran = 1.1*np.sqrt((w/2)**2+(h/2)**2)  # Maximum distance away from center
-                    
-                    if dist > ran:
-                        continue
-                    
-                    cv2.circle(annotated, (x, y), 5, (255, 0, 0), -1)
-        
-        self.countFrames += 1
-        print(self.countFrames)
         return annotated
-              
-      # Starts Stream (Change camera info here)         
+    
+    # def cornerDetection(self, grey, frame):
+    #     # Detect a square every so often (maybe every 60 frames (or every second))
+    #     # Find corners in the right range
+    #     blurred = cv2.GaussianBlur(grey, (5, 5), 0)
+    #     edges = cv2.Canny(blurred, 50, 150)
+        
+    #     edges = self.testPreproccessing(grey, frame)
+        
+    #     #annotated = edges.copy()
+    #     annotated = frame.copy()
+        
+    #     if True: #self.countFrames%20 == 0:    #Refinds the square every X frames
+
+    #         # ========== Find contours ==========
+    #         contours, _ = cv2.findContours(
+    #             edges,
+    #             cv2.RETR_TREE,              #SWITCH EXTERNAL <---> TREE
+    #             cv2.CHAIN_APPROX_SIMPLE     #SWITCH SIMPLE <---> NONE
+    #         )  
+            
+    #         for cnt in contours:
+    #             epsilon = 0.02 * cv2.arcLength(cnt, True)
+    #             square = cv2.approxPolyDP(cnt, epsilon, True)
+    #             # ========== Filters ===========
+    #             if not len(square) == 4:    #Makes sure it has 4 edges
+    #                 continue
+                
+    #             area = cv2.contourArea(square)
+                
+    #             if area < 800:      #Min area
+    #                 continue
+                
+    #             rect = cv2.minAreaRect(cnt)
+    #             (x, y), (w, h), angle = rect
+    #             if h == 0 or w == 0:
+    #                 continue
+    #             ratio = min(w, h) / max(w, h)
+                
+    #             if ratio < 0.8:
+    #                 continue
+                
+    #             self.poly = square
+                
+    #     if self.poly is None:   # Makes sure always finds a square before proceeding
+    #         self.countFrames -= 1
+            
+    #     # =========== Corner Detection ===========
+    #     else:
+    #         cv2.drawContours(annotated, [self.poly], 0, (0,255,0), 2)
+            
+    #         M = cv2.moments(self.poly)
+
+    #         cx = int(M["m10"] / M["m00"])
+    #         cy = int(M["m01"] / M["m00"])
+            
+    #         x, y, w, h = cv2.boundingRect(self.poly)
+    #         area = cv2.contourArea(self.poly)
+            
+    #         ran = int((area**.5)/(2**.5))  # Maximum distance away from center
+            
+    #         mask = np.zeros(blurred.shape, dtype=np.uint8)
+    #         cv2.circle(mask, (cx, cy), ran, 255, -1)
+        
+    #         # cv2.goodFeaturesToTrack(image, maxCorners, qualityLevel, minDistance)
+    #         corners = cv2.goodFeaturesToTrack(edges,200,0.01,10, mask=mask)
+            
+    #         if corners is not None:
+    #             corners = corners.astype(int)
+    #             for corner in corners:
+    #                 x, y = corner.ravel()
+                    
+    #                 dist = np.sqrt((cx-x)**2 + (cy-y)**2)
+    #                 diff = abs((ran-dist)/ran)
+                    
+    #                 if diff > 0.1:
+    #                     continue
+    #                 cv2.circle(annotated, (x, y), 5, (255, 0, 0), -1)
+        
+    #     self.countFrames += 1
+    #     print(self.countFrames)
+    #     return annotated
+        
+    # Starts Stream (Change camera info here)         
     def startStream(self):
         if self.running:
             return
@@ -286,11 +377,6 @@ class video:
         
         threading.Thread(target=self.stream_thread, daemon=True).start()    #Starts stream thread once running
     
-    def setMode(self, x):
-        self.mode = x
-        self.poly = None
-        self.countFrames = 0
-    
     # Ends stream
     def endStream(self):
         self.running = False
@@ -311,5 +397,8 @@ class video:
     # Returns the geometry (and position) of ellipse
     def getEllipse(self):
         return self.ellipse
+    
+    def setMode(self, mode):
+        self.mode = mode
         
         

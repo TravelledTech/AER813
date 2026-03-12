@@ -39,7 +39,7 @@ class App:
         
         ttk.Radiobutton(
             self.sidebar,
-            text="Ellipse",
+            text="Normal",
             variable=self.mode_var,
             value=0,
             command=self.temp1
@@ -47,7 +47,7 @@ class App:
         
         ttk.Radiobutton(
             self.sidebar,
-            text="Contour",
+            text="Contours",
             variable=self.mode_var,
             value=1,
             command=self.temp2
@@ -55,7 +55,7 @@ class App:
         
         ttk.Radiobutton(
             self.sidebar,
-            text="SpinRate",
+            text="Temp3",
             variable=self.mode_var,
             value=2,
             command=self.temp3
@@ -104,13 +104,13 @@ class App:
         
     def temp1(self):
         self.display_mode = 0
-        self.vid.setMode(1)
+        self.vid.setMode(3)
     def temp2(self):
         self.display_mode = 1
         self.vid.setMode(2)
     def temp3(self):
         self.display_mode = 2
-        self.vid.setMode(3)
+        self.vid.setMode(1)
 
 
 if __name__ == "__main__":
