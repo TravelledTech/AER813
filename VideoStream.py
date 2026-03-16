@@ -26,7 +26,7 @@ class video:
         self.cap = None
         self.running = False
         self.status = "OFFLINE"
-        self.mode = 3
+        self.mode = 0   #Starting Mode
         # 0 = Normal
         # 1 = Ellipse
         # 2 = Ellipse Contours
@@ -56,7 +56,9 @@ class video:
         
         #Stuff for spin rate
         self.prev_grey = None   #Use previous frame combined with new one tp reduce motion blur effects
-        self.corners = [] #Store the previous corners (maybe store multiple for future smoothing and checking)
+        self.prevPoly = None  
+        
+        self.velocity = 0
         
 
 
@@ -77,16 +79,38 @@ class video:
             grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             
             #Change whats being outputted
-            if self.mode == 0:
-                self.output = frameRGB
-            elif self.mode == 1:
+            if self.mode == 0:      #Normal
+                self.output = frame
+            elif self.mode == 1:    # Ellipse
                 self.output = self.contourDetection(grey, frame)
-            elif self.mode == 2:
+            elif self.mode == 2:    #EllipseC
                 self.output = self.contourPreprocessing(grey, frame)
-            elif self.mode == 3:
+            elif self.mode == 3:    #Spin
                 self.output = self.cornerDetection(grey, frame)
-            else:
-                self.output = self.cornerPreproccessing(grey, frame)
+                self.angularVel()
+            else:                   #SpinC
+                self.output = self.cornerPreprocessing2(grey, frame)
+    
+    def angularVel(self):
+        if not self.prevPoly is None:
+            p1=[]
+            p2=[]
+            for i in range(4):
+                p1.append(self.prevPoly[i][0])  #Use p1[i][ii], i for point and ii for x and y
+                p2.append(self.poly[i][0])
+            
+            total = 0
+            for i in range(4):
+                x1 = (i+1)%4
+                x2 = i
+                a1 = (np.arctan2(p1[x1][1]-p1[x2][1], p1[x1][0]-p1[x2][0]))
+                a2 = (np.arctan2(p2[x1][1]-p2[x2][1], p2[x1][0]-p2[x2][0]))
+                total += (a2-a1+np.pi/4)%(np.pi/2)-np.pi/4
+            deltaA = total/4
+            self.velocity = deltaA/self.frameTime
+            
+            
+        self.prevPoly = self.poly
     
     #Image preprocessing for contour (ellipse) Detection
     def contourPreprocessing(self, grey, frame):
@@ -94,7 +118,7 @@ class video:
         return cv2.Canny(blurred, 50, 150)
     
     #Image preprocessing for corner (spinning) Detection
-    def cornerPreproccessing(self, grey, frame):
+    def cornerPreprocessing(self, grey, frame):
         #Combines the previous and current frame to help reduce effects of motion blur
         if self.prev_grey is not None:
             blended = cv2.addWeighted(grey, 0.8, self.prev_grey, 0.2, 0)
@@ -111,6 +135,13 @@ class video:
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
         return mask
     
+    def cornerPreprocessing2(self, grey, frame):    #seems to work better
+        smooth = cv2.bilateralFilter(grey, 7, 50, 50)
+        kernel = np.ones((3,3), np.uint8)
+        opened = cv2.morphologyEx(smooth, cv2.MORPH_OPEN, kernel)
+        edges = cv2.Canny(opened, 30, 120)
+        return cv2.dilate(edges, None, iterations=1)
+    
     #Finds the ellipse (or engine bell), actual coordinates will be processed in a different file
     def contourDetection(self, grey, frame):
         # =========== Edge Detection =========== (Moved to a different function)
@@ -121,7 +152,7 @@ class video:
         # ========== Find contours ==========
         contours, _ = cv2.findContours(
             edges,
-            cv2.RETR_EXTERNAL,
+            cv2.RETR_TREE,
             cv2.CHAIN_APPROX_SIMPLE     #SWITCH SIMPLE <---> NONE
         )                               # TEST WHICH ONE PERFORMS BETTER
         
@@ -129,11 +160,18 @@ class video:
         Score = -1e9
         for cnt in contours:
             # ========== Contour Filters ========== (Adjust)
-            if len(cnt) < 10:   # Minimum contour length
+            if len(cnt) < 50:   # Minimum contour length
                 continue
             
             contourArea = cv2.contourArea(cnt) # Sets minimum area
             if contourArea < 800:
+                continue
+            
+            peri = cv2.arcLength(cnt, True)
+            approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+            
+            # If it takes exactly 4 points to define the shape, it's a square. Reject it!
+            if len(approx) == 4:
                 continue
             
             ellipse = cv2.fitEllipse(cnt)
@@ -151,9 +189,9 @@ class video:
             area = np.pi * (w / 2) * (h / 2)
             
             fill = contourArea / area   #Checks Contour area vs. Ellipse area
-            if fill < 0.5:
+            if fill < 0.9 or fill > 1.1:
                 continue
-
+    
             # ====== Find first ellipse ======
             if not self.hasFound:    
             
@@ -182,6 +220,9 @@ class video:
             else:
                 # With 1280x720, probably want a ellipse within 50 pixel of the last one (adjust this)
                 # Keep area withink 80% of the original
+                
+                if self.lastCenter is None:
+                    continue
                 
                 # Score threshholds (change later)
                 maxDist = 150
@@ -242,7 +283,7 @@ class video:
     
     #Finds the spin rate (kinda bad right now)
     def cornerDetection(self, grey, frame):
-        edges = self.cornerPreproccessing(grey, frame)
+        edges = self.cornerPreprocessing2(grey, frame)
         annotated = frame.copy()
         
         # Get image dimensions to set limits
@@ -264,11 +305,7 @@ class video:
                 
                 if area < 1000:  # Filters small objects
                     continue
-                
-                # # 3. Hierarchy Check: If it's the outermost possible thing, 
-                # # and it's huge, it's probably the frame.
-                # # hierarchy[0][i][3] is the Parent index. -1 means no parent.
-
+            
                 hull = cv2.convexHull(cnt)  # Bounding Box
                 peri = cv2.arcLength(hull, True)
                 approx = cv2.approxPolyDP(hull, 0.04 * peri, True)
@@ -378,25 +415,29 @@ class video:
     # Starts Stream (Change camera info here)         
     def startStream(self):
         if self.running:
-            return
+            return True
         
-        self.cap = cv2.VideoCapture(self.URL)
-        
-        # Change resolution here
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.xRes)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.yRes)
-        self.cap.set(cv2.CAP_PROP_FPS, self.fps)
+        self.cap = cv2.VideoCapture(self.URL, cv2.CAP_DSHOW)   #Change to FFMEG for host camera
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         
         if not self.cap.isOpened():
             self.status = "ERROR"
             print("Camera Failed")
             self.cap = None
-            return
+            return False
+        
+        # Change resolution here
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.xRes)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.yRes)
+        self.cap.set(cv2.CAP_PROP_FPS, self.fps)
+        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  #REMOVE THIS LATER
+        self.cap.set(cv2.CAP_PROP_EXPOSURE, -10)
         
         self.running = True
         self.status = "ONLINE"
         
         threading.Thread(target=self.stream_thread, daemon=True).start()    #Starts stream thread once running
+        return True
     
     # Ends stream
     def endStream(self):
@@ -409,6 +450,8 @@ class video:
     
     # Return Selected Captured Frame
     def getFrame(self):
+        if not self.running:
+            return None
         return self.output
     
     # Returns a txt of Camera Status
@@ -421,6 +464,10 @@ class video:
     
     # Set Camera modex
     def setMode(self, mode):
+        self.hasFound = False
         self.mode = mode
+        
+    def getVel(self):
+        return self.velocity
         
         
