@@ -3,12 +3,19 @@
 # Cam1       | Cam2
 # -----------+----------
 # Docking GUI| Controls
-# make 2 more files, one for docking vision one for mace that feeds the data into this file
 
-# Main frame is 1536x824
+# Main frame is 1536x824 (on laptop)
 # Each subframe is 718x382
 
 #Might be able to combine both the rotation and position tracking if I have enough processing power (look into it in the future)
+
+#TODO list
+# Currently the start and end buttons are bugged, works once but cant restart cameras
+# finish telemetry once I actually have it
+# do raspberry pi stuff
+# maybe combine the detection cameras
+# maybe add a scale
+# figure out how the code will feed rotation data to simulink
 
 import tkinter as tk
 from tkinter import ttk

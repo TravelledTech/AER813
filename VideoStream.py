@@ -14,9 +14,18 @@ import threading
 #https://docs.opencv.org/4.x/dc/d0d/tutorial_py_features_harris.html
 #https://docs.opencv.org/4.x/d4/d8c/tutorial_py_shi_tomasi.html
 #https://docs.opencv.org/3.4/d4/dee/tutorial_optical_flow.html
+# https://arxiv.org/pdf/2209.02205 < not using this but interesting
+#
 
 #Maybe make a different file for spinning and circle detection?
 #Maybe make a seperate version for horizontal viewing
+
+# New pipeline for rotation detection
+# (Starts the same as the original one)
+# This time, instead of detection one face, detects multiple
+# Continues to track them untill their aspect ration becomes too big
+# Corners are the important part, use solvePnP to solve for rotation matrix
+# Figure out how to prune the points and figure out how to deal with frame skips
 
 class video:
     def __init__(self, URL):
@@ -60,7 +69,15 @@ class video:
         
         self.velocity = 0
         
-
+        #V1 velocity tracking for more complicated objects
+        self.prev_grey2 = None   #This one is reused, remove one finialised the version I will use
+        self.prev_pts = None
+        self.prev_angle = None
+        
+        #V2 velocity traking
+        self.currentPoly = []
+        self.prev_pts = None
+        self.prev_angle = None
 
     # Runs the streaming thread (all camera stuff will happen here)
     def stream_thread(self):
@@ -86,8 +103,9 @@ class video:
             elif self.mode == 2:    #EllipseC
                 self.output = self.contourPreprocessing(grey, frame)
             elif self.mode == 3:    #Spin
-                self.output = self.cornerDetection(grey, frame)
-                self.angularVel()
+                #self.output = self.cornerDetection(grey, frame)
+                #self.angularVel()
+                self.output = self.rotationV1(grey, frame)
             else:                   #SpinC
                 self.output = self.cornerPreprocessing2(grey, frame)
     
@@ -142,6 +160,134 @@ class video:
         edges = cv2.Canny(opened, 30, 120)
         return cv2.dilate(edges, None, iterations=1)
     
+    def rotationV1(self, grey, frame):
+        edges = self.cornerPreprocessing2(grey, frame)
+        annotated = frame.copy()
+        
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        if not contours:
+            self.prev_pts = None
+            self.velocity = None
+            return annotated
+        
+        cnt = max(contours, key=cv2.contourArea)
+        
+        mask_full = np.zeros_like(grey)
+        cv2.drawContours(mask_full, [cnt], -1, 255, -1)
+        
+        # eroded mask (shrinks inward)
+        kernel = np.ones((15,15), np.uint8)
+        mask_inner = cv2.erode(mask_full, kernel)
+        
+        # edge band = outer - inner
+        mask = cv2.subtract(mask_full, mask_inner)
+        
+        if self.prev_pts is None:
+            self.prev_pts = cv2.goodFeaturesToTrack(
+                grey,
+                maxCorners=150,
+                qualityLevel=0.005,
+                minDistance=5,
+                mask=mask
+            )
+            self.prev_grey2 = grey.copy()
+            return annotated
+        
+        # ADD NEW POINTS if too few
+        if len(self.prev_pts) < 80:
+            new_pts = cv2.goodFeaturesToTrack(
+                grey,
+                maxCorners=100,
+                qualityLevel=0.01,
+                minDistance=5,
+                mask=mask
+            )
+            
+            if new_pts is not None:
+                self.prev_pts = np.vstack((self.prev_pts, new_pts))
+        
+            self.prev_grey2 = grey.copy()
+            return annotated
+        
+        self.next_pts, status, _ = cv2.calcOpticalFlowPyrLK(
+            self.prev_grey2,
+            grey,
+            self.prev_pts,
+            None,
+            winSize=(21, 21),
+            maxLevel=3,
+            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01)
+        )
+            
+        good_old = self.prev_pts[status == 1]
+        good_new = self.next_pts[status == 1]
+        
+        # --- reshape for safety ---
+        good_old = good_old.reshape(-1, 2)
+        good_new = good_new.reshape(-1, 2)
+        
+        # --- Step 1: bounds check ---
+        h, w = mask.shape
+        
+        x = good_new[:, 0]
+        y = good_new[:, 1]
+        
+        valid = (x >= 0) & (x < w) & (y >= 0) & (y < h)
+        
+        good_old = good_old[valid]
+        good_new = good_new[valid]
+        
+        # recompute x, y AFTER filtering
+        x = good_new[:, 0]
+        y = good_new[:, 1]
+        
+        # --- Step 2: contour mask filtering ---
+        mask_values = mask[y.astype(int), x.astype(int)] > 0
+        
+        good_old = good_old[mask_values]
+        good_new = good_new[mask_values]
+        
+        # --- Step 3: motion filtering (loose) ---
+        displacement = np.linalg.norm(good_new - good_old, axis=1)
+        
+        motion_mask = displacement < 50
+        
+        good_old = good_old[motion_mask]
+        good_new = good_new[motion_mask]
+
+        for pt in good_new:
+            x, y = pt.ravel()
+            cv2.circle(annotated, (int(x), int(y)), 3, (0,255,0), -1)
+    
+        if len(good_new) < 10:
+            self.prev_pts = good_new.reshape(-1, 1, 2)
+            self.prev_grey2 = grey.copy()
+            return annotated
+        
+        M, _ = cv2.estimateAffinePartial2D(good_old, good_new)
+
+        if M is None:
+            self.prev_pts = None
+            self.velocity *= 0.98
+            return annotated
+        
+        theta = np.arctan2(M[1, 0], M[0, 0])
+        
+        if self.prev_angle is not None:
+            dtheta = theta - self.prev_angle
+            dtheta = (dtheta + np.pi) % (2 * np.pi) - np.pi
+            omega = dtheta * self.fps
+        else:
+            omega = 0
+            
+        self.prev_pts = good_new.reshape(-1, 1, 2)
+        self.prev_grey2 = grey.copy()
+        self.prev_angle = theta
+        
+        self.velocity = omega
+        return annotated
+
     #Finds the ellipse (or engine bell), actual coordinates will be processed in a different file
     def contourDetection(self, grey, frame):
         # =========== Edge Detection =========== (Moved to a different function)
@@ -329,89 +475,113 @@ class video:
         
         return annotated
     
-    #old (bad) code
-    # def cornerDetection(self, grey, frame):
-    #     # Detect a square every so often (maybe every 60 frames (or every second))
-    #     # Find corners in the right range
-    #     blurred = cv2.GaussianBlur(grey, (5, 5), 0)
-    #     edges = cv2.Canny(blurred, 50, 150)
+    # Old (bad) code for rotation detection
+    def cornerDetection_Bad(self, grey, frame):
+        # Detect a square every so often (maybe every 60 frames (or every second))
+        # Find corners in the right range
+        blurred = cv2.GaussianBlur(grey, (5, 5), 0)
+        edges = cv2.Canny(blurred, 50, 150)
         
-    #     edges = self.testPreproccessing(grey, frame)
+        edges = self.testPreproccessing(grey, frame)
         
-    #     #annotated = edges.copy()
-    #     annotated = frame.copy()
+        #annotated = edges.copy()
+        annotated = frame.copy()
         
-    #     if True: #self.countFrames%20 == 0:    #Refinds the square every X frames
+        if True: #self.countFrames%20 == 0:    #Refinds the square every X frames
 
-    #         # ========== Find contours ==========
-    #         contours, _ = cv2.findContours(
-    #             edges,
-    #             cv2.RETR_TREE,              #SWITCH EXTERNAL <---> TREE
-    #             cv2.CHAIN_APPROX_SIMPLE     #SWITCH SIMPLE <---> NONE
-    #         )  
+            # ========== Find contours ==========
+            contours, _ = cv2.findContours(
+                edges,
+                cv2.RETR_TREE,              #SWITCH EXTERNAL <---> TREE
+                cv2.CHAIN_APPROX_SIMPLE     #SWITCH SIMPLE <---> NONE
+            )  
             
-    #         for cnt in contours:
-    #             epsilon = 0.02 * cv2.arcLength(cnt, True)
-    #             square = cv2.approxPolyDP(cnt, epsilon, True)
-    #             # ========== Filters ===========
-    #             if not len(square) == 4:    #Makes sure it has 4 edges
-    #                 continue
+            for cnt in contours:
+                epsilon = 0.02 * cv2.arcLength(cnt, True)
+                square = cv2.approxPolyDP(cnt, epsilon, True)
+                # ========== Filters ===========
+                if not len(square) == 4:    #Makes sure it has 4 edges
+                    continue
                 
-    #             area = cv2.contourArea(square)
+                area = cv2.contourArea(square)
                 
-    #             if area < 800:      #Min area
-    #                 continue
+                if area < 800:      #Min area
+                    continue
                 
-    #             rect = cv2.minAreaRect(cnt)
-    #             (x, y), (w, h), angle = rect
-    #             if h == 0 or w == 0:
-    #                 continue
-    #             ratio = min(w, h) / max(w, h)
+                rect = cv2.minAreaRect(cnt)
+                (x, y), (w, h), angle = rect
+                if h == 0 or w == 0:
+                    continue
+                ratio = min(w, h) / max(w, h)
                 
-    #             if ratio < 0.8:
-    #                 continue
+                if ratio < 0.8:
+                    continue
                 
-    #             self.poly = square
+                self.poly = square
                 
-    #     if self.poly is None:   # Makes sure always finds a square before proceeding
-    #         self.countFrames -= 1
+        if self.poly is None:   # Makes sure always finds a square before proceeding
+            self.countFrames -= 1
             
-    #     # =========== Corner Detection ===========
-    #     else:
-    #         cv2.drawContours(annotated, [self.poly], 0, (0,255,0), 2)
+        # =========== Corner Detection ===========
+        else:
+            cv2.drawContours(annotated, [self.poly], 0, (0,255,0), 2)
             
-    #         M = cv2.moments(self.poly)
+            M = cv2.moments(self.poly)
 
-    #         cx = int(M["m10"] / M["m00"])
-    #         cy = int(M["m01"] / M["m00"])
+            cx = int(M["m10"] / M["m00"])
+            cy = int(M["m01"] / M["m00"])
             
-    #         x, y, w, h = cv2.boundingRect(self.poly)
-    #         area = cv2.contourArea(self.poly)
+            x, y, w, h = cv2.boundingRect(self.poly)
+            area = cv2.contourArea(self.poly)
             
-    #         ran = int((area**.5)/(2**.5))  # Maximum distance away from center
+            ran = int((area**.5)/(2**.5))  # Maximum distance away from center
             
-    #         mask = np.zeros(blurred.shape, dtype=np.uint8)
-    #         cv2.circle(mask, (cx, cy), ran, 255, -1)
+            mask = np.zeros(blurred.shape, dtype=np.uint8)
+            cv2.circle(mask, (cx, cy), ran, 255, -1)
         
-    #         # cv2.goodFeaturesToTrack(image, maxCorners, qualityLevel, minDistance)
-    #         corners = cv2.goodFeaturesToTrack(edges,200,0.01,10, mask=mask)
+            # cv2.goodFeaturesToTrack(image, maxCorners, qualityLevel, minDistance)
+            corners = cv2.goodFeaturesToTrack(edges,200,0.01,10, mask=mask)
             
-    #         if corners is not None:
-    #             corners = corners.astype(int)
-    #             for corner in corners:
-    #                 x, y = corner.ravel()
+            if corners is not None:
+                corners = corners.astype(int)
+                for corner in corners:
+                    x, y = corner.ravel()
                     
-    #                 dist = np.sqrt((cx-x)**2 + (cy-y)**2)
-    #                 diff = abs((ran-dist)/ran)
+                    dist = np.sqrt((cx-x)**2 + (cy-y)**2)
+                    diff = abs((ran-dist)/ran)
                     
-    #                 if diff > 0.1:
-    #                     continue
-    #                 cv2.circle(annotated, (x, y), 5, (255, 0, 0), -1)
+                    if diff > 0.1:
+                        continue
+                    cv2.circle(annotated, (x, y), 5, (255, 0, 0), -1)
         
-    #     self.countFrames += 1
-    #     print(self.countFrames)
-    #     return annotated
+        self.countFrames += 1
+        print(self.countFrames)
+        return annotated
         
+    def rotationV2(self, grey, frame):
+        edges = self.cornerPreprocessing2(grey)
+        annotated = frame.copy
+        
+        contours, _ = cv2.findContours(
+            edges,
+            cv2.RETR_TREE,
+            cv2.CHAIN_APPROX_SIMPLE     #SWITCH SIMPLE <---> NONE
+        )
+        
+        # Probably apply similar filters but not score.
+        for cnt in contours:
+            peri = cv2.arcLength(cnt, True)
+            approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+            
+            if len(approx) == 4:
+                continue
+            
+            if cv2.contourArea(cnt) < 800:
+                continue
+            
+            if len(cnt) < 100:
+                continue
+    
     # Starts Stream (Change camera info here)         
     def startStream(self):
         if self.running:

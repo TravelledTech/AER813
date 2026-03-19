@@ -6,7 +6,7 @@ class tele:
         self.lElip = None
         self.rElip = None
         
-        self.Telemetry = [None, None, None, None, None]  #Pos X, Y and Z, Rot X, Y
+        self.Telemetry = [None, None, None, None, None, None]  #Pos X, Y and Z, Rot X, Y, Z
         
     def setElipse(self, elip1, elip2):
         self.lElip = elip1
