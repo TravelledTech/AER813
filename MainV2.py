@@ -1,4 +1,6 @@
+# %%
 # Redo some of the code to account for 2, wireless cameras (can't really test right now)
+
 # I guess also integrate the mace thing into this
 # Cam1       | Cam2
 # -----------+----------

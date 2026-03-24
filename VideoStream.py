@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import threading
+import time
 
 # Use this class for handling video streaming (Probably also use this for the edge detection and position handling)
 # Have 2 methods of score
@@ -69,15 +70,31 @@ class video:
         
         self.velocity = 0
         
-        #V1 velocity tracking for more complicated objects
+        #V2 velocity tracking for more complicated objects
         self.prev_grey2 = None   #This one is reused, remove one finialised the version I will use
         self.prev_pts = None
         self.prev_angle = None
         
-        #V2 velocity traking
-        self.currentPoly = []
-        self.prev_pts = None
-        self.prev_angle = None
+        #V3 Stuff
+        self.unit3Dpoints = np.array([
+            [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]
+        ], dtype=np.float32)
+        self.lastRVEC = {}
+        self.lastTime = time.perf_counter()
+        
+        self.camMatrix = np.array([
+            [self.xRes, 0, self.xRes/2],
+            [0, self.xRes, self.yRes/2],
+            [0, 0, 1]
+        ], dtype=np.float32)
+        
+        self.prevPts = None
+        
+        self.movingAvg = [0.0]
+        self.movingAvgComponents = []
+        self.velocityComponents = np.array([0.0, 0.0, 0.0])
+        
+        
 
     # Runs the streaming thread (all camera stuff will happen here)
     def stream_thread(self):
@@ -105,11 +122,11 @@ class video:
             elif self.mode == 3:    #Spin
                 #self.output = self.cornerDetection(grey, frame)
                 #self.angularVel()
-                self.output = self.rotationV1(grey, frame)
+                self.output = self.rotationV3(grey, frame)
             else:                   #SpinC
                 self.output = self.cornerPreprocessing2(grey, frame)
     
-    def angularVel(self):
+    def angularVel(self):   #Only used for rotationV2, uses the vectors of each side to determine rotation rate, swith to PnP solver for V3
         if not self.prevPoly is None:
             p1=[]
             p2=[]
@@ -135,7 +152,7 @@ class video:
         blurred = cv2.GaussianBlur(grey, (5, 5), 0)
         return cv2.Canny(blurred, 50, 150)
     
-    #Image preprocessing for corner (spinning) Detection
+    #Image preprocessing for corner (spinning) Detection (USE THE OTHER ONE)
     def cornerPreprocessing(self, grey, frame):
         #Combines the previous and current frame to help reduce effects of motion blur
         if self.prev_grey is not None:
@@ -154,139 +171,11 @@ class video:
         return mask
     
     def cornerPreprocessing2(self, grey, frame):    #seems to work better
-        smooth = cv2.bilateralFilter(grey, 7, 50, 50)
+        smooth = cv2.bilateralFilter(grey, 9, 75, 75)
         kernel = np.ones((3,3), np.uint8)
         opened = cv2.morphologyEx(smooth, cv2.MORPH_OPEN, kernel)
         edges = cv2.Canny(opened, 30, 120)
         return cv2.dilate(edges, None, iterations=1)
-    
-    def rotationV1(self, grey, frame):
-        edges = self.cornerPreprocessing2(grey, frame)
-        annotated = frame.copy()
-        
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        if not contours:
-            self.prev_pts = None
-            self.velocity = None
-            return annotated
-        
-        cnt = max(contours, key=cv2.contourArea)
-        
-        mask_full = np.zeros_like(grey)
-        cv2.drawContours(mask_full, [cnt], -1, 255, -1)
-        
-        # eroded mask (shrinks inward)
-        kernel = np.ones((15,15), np.uint8)
-        mask_inner = cv2.erode(mask_full, kernel)
-        
-        # edge band = outer - inner
-        mask = cv2.subtract(mask_full, mask_inner)
-        
-        if self.prev_pts is None:
-            self.prev_pts = cv2.goodFeaturesToTrack(
-                grey,
-                maxCorners=150,
-                qualityLevel=0.005,
-                minDistance=5,
-                mask=mask
-            )
-            self.prev_grey2 = grey.copy()
-            return annotated
-        
-        # ADD NEW POINTS if too few
-        if len(self.prev_pts) < 80:
-            new_pts = cv2.goodFeaturesToTrack(
-                grey,
-                maxCorners=100,
-                qualityLevel=0.01,
-                minDistance=5,
-                mask=mask
-            )
-            
-            if new_pts is not None:
-                self.prev_pts = np.vstack((self.prev_pts, new_pts))
-        
-            self.prev_grey2 = grey.copy()
-            return annotated
-        
-        self.next_pts, status, _ = cv2.calcOpticalFlowPyrLK(
-            self.prev_grey2,
-            grey,
-            self.prev_pts,
-            None,
-            winSize=(21, 21),
-            maxLevel=3,
-            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01)
-        )
-            
-        good_old = self.prev_pts[status == 1]
-        good_new = self.next_pts[status == 1]
-        
-        # --- reshape for safety ---
-        good_old = good_old.reshape(-1, 2)
-        good_new = good_new.reshape(-1, 2)
-        
-        # --- Step 1: bounds check ---
-        h, w = mask.shape
-        
-        x = good_new[:, 0]
-        y = good_new[:, 1]
-        
-        valid = (x >= 0) & (x < w) & (y >= 0) & (y < h)
-        
-        good_old = good_old[valid]
-        good_new = good_new[valid]
-        
-        # recompute x, y AFTER filtering
-        x = good_new[:, 0]
-        y = good_new[:, 1]
-        
-        # --- Step 2: contour mask filtering ---
-        mask_values = mask[y.astype(int), x.astype(int)] > 0
-        
-        good_old = good_old[mask_values]
-        good_new = good_new[mask_values]
-        
-        # --- Step 3: motion filtering (loose) ---
-        displacement = np.linalg.norm(good_new - good_old, axis=1)
-        
-        motion_mask = displacement < 50
-        
-        good_old = good_old[motion_mask]
-        good_new = good_new[motion_mask]
-
-        for pt in good_new:
-            x, y = pt.ravel()
-            cv2.circle(annotated, (int(x), int(y)), 3, (0,255,0), -1)
-    
-        if len(good_new) < 10:
-            self.prev_pts = good_new.reshape(-1, 1, 2)
-            self.prev_grey2 = grey.copy()
-            return annotated
-        
-        M, _ = cv2.estimateAffinePartial2D(good_old, good_new)
-
-        if M is None:
-            self.prev_pts = None
-            self.velocity *= 0.98
-            return annotated
-        
-        theta = np.arctan2(M[1, 0], M[0, 0])
-        
-        if self.prev_angle is not None:
-            dtheta = theta - self.prev_angle
-            dtheta = (dtheta + np.pi) % (2 * np.pi) - np.pi
-            omega = dtheta * self.fps
-        else:
-            omega = 0
-            
-        self.prev_pts = good_new.reshape(-1, 1, 2)
-        self.prev_grey2 = grey.copy()
-        self.prev_angle = theta
-        
-        self.velocity = omega
-        return annotated
 
     #Finds the ellipse (or engine bell), actual coordinates will be processed in a different file
     def contourDetection(self, grey, frame):
@@ -428,7 +317,7 @@ class video:
         return annotated
     
     #Finds the spin rate (kinda bad right now)
-    def cornerDetection(self, grey, frame):
+    def rotationV2(self, grey, frame):
         edges = self.cornerPreprocessing2(grey, frame)
         annotated = frame.copy()
         
@@ -476,7 +365,7 @@ class video:
         return annotated
     
     # Old (bad) code for rotation detection
-    def cornerDetection_Bad(self, grey, frame):
+    def rotationV1(self, grey, frame):
         # Detect a square every so often (maybe every 60 frames (or every second))
         # Find corners in the right range
         blurred = cv2.GaussianBlur(grey, (5, 5), 0)
@@ -558,9 +447,15 @@ class video:
         print(self.countFrames)
         return annotated
         
-    def rotationV2(self, grey, frame):
-        edges = self.cornerPreprocessing2(grey)
-        annotated = frame.copy
+    def rotationV3(self, grey, frame):
+        edges = self.cornerPreprocessing2(grey, frame)
+        annotated = frame.copy()
+        img_h, img_w = edges.shape[:2]
+        
+        currTime = time.perf_counter()
+        dt = currTime - self.lastTime   #Change in time
+        deltaCurrFrame = []             #Stores change frame
+        nextRVEC = {}   #Stores all orientations  in this frame
         
         contours, _ = cv2.findContours(
             edges,
@@ -568,19 +463,139 @@ class video:
             cv2.CHAIN_APPROX_SIMPLE     #SWITCH SIMPLE <---> NONE
         )
         
+        matchVel = []   # velocities for contours that match the prev
+        matchOmega = [] # For XYZ component
+        
         # Probably apply similar filters but not score.
         for cnt in contours:
-            peri = cv2.arcLength(cnt, True)
-            approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
             
-            if len(approx) == 4:
+            # ========== Filters ===========
+            hull = cv2.convexHull(cnt)
+            peri = cv2.arcLength(hull, True)
+            approx = cv2.approxPolyDP(hull, 0.02 * peri, True)
+            area = cv2.contourArea(cnt)
+            
+            if not len(approx) == 4:
                 continue
-            
             if cv2.contourArea(cnt) < 800:
                 continue
-            
             if len(cnt) < 100:
                 continue
+            
+            x, y, w, h = cv2.boundingRect(hull)
+            ratio = min(w, h) / max(w, h)
+            
+            if ratio < 0.6:
+                continue
+            if not(x > 2 and y > 2 and (x + w) < (img_w - 2)):
+                continue
+            
+            hullArea = cv2.contourArea(hull)
+            solidity = float(area) / hullArea if hullArea > 0 else 0
+            
+            if solidity < 0.9:
+                continue
+            
+            # =========== PnP Stuff ==========
+            #Makes sure [0] is top right
+            cx, cy = self.getCentroid(approx)
+            imgPoints = approx.astype(np.float32).reshape(4, 2)
+            
+            match = None    #Used to determine if it matches the previous frame
+            for oldPos in self.lastRVEC.keys():
+                if np.sqrt((cx-oldPos[0])**2 + (cy-oldPos[1])**2) < 60:
+                    match = oldPos
+                    break
+            
+            # Get previous points and sorts currebt
+            prevPts = self.lastRVEC[match]['pts'] if match else None
+            imgPoints = self.sortPoints(imgPoints, prevPts)
+            
+            #Refine corners
+            imgPoints = cv2.cornerSubPix(grey, imgPoints, (5, 5), (-1, -1), (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 40, 0.001))
+            success, rvec, tvec = cv2.solvePnP(self.unit3Dpoints, imgPoints, self.camMatrix, None, flags=cv2.SOLVEPNP_IPPE_SQUARE)
+            
+            if success:
+                nextRVEC[(cx, cy)] = {'rvec': rvec, 'pts': imgPoints}
+                cv2.drawContours(annotated, [approx], -1, (0, 255, 0), 2)
+                
+                imgPoints = approx.astype(np.float32).reshape(4, 2)
+                imgPoints = self.sortPoints(imgPoints, prevPts)
+                
+                if match is not None and dt > 0:
+                    Rcurr, _ = cv2.Rodrigues(rvec)
+                    Rprev, _ = cv2.Rodrigues(self.lastRVEC[match]['rvec'])
+                    Rdelta = np.dot(Rcurr, Rprev.T)
+                    rvecDelta, _ = cv2.Rodrigues(Rdelta)
+                    omegaVector = rvecDelta.ravel() / dt
+                    matchVel.append(np.linalg.norm(rvecDelta) / dt)
+                    matchOmega.append(omegaVector)
+        
+        #self.movingAvg[0] = self.movingAvg[1]
+        #self.movingAvg[1] = self.movingAvg[2]
+        
+        if matchVel:
+            vel = np.median(matchVel)
+            omega = np.median(matchOmega, axis=0)
+            
+            # If velocity too low, just make it zero, reduces noise
+            if vel < 0.2: 
+                avgAngle = 0
+                omega = np.array([0.0, 0.0, 0.0])
+            #self.movingAvg[2] = avgAngle
+            
+        else:
+            vel = self.movingAvg[-1] * 0.95
+            if self.movingAvgComponents:
+                omega = self.movingAvgComponents[-1] * 0.95
+            else:
+                omega = np.zeros(3)
+        
+        self.movingAvg.append(vel)
+        if len(self.movingAvg) > 5:
+            self.movingAvg.pop(0)
+        self.velocity = sum(self.movingAvg) / len(self.movingAvg)
+        
+        self.movingAvgComponents.append(omega)
+        if len(self.movingAvgComponents) > 5:
+            self.movingAvgComponents.pop(0)
+        self.velocityComponents = np.mean(self.movingAvgComponents, axis=0)
+        
+        self.lastTime = currTime
+        self.lastRVEC = nextRVEC
+        return annotated
+    
+    #Gets centroid of given polygon
+    def getCentroid(self, poly):
+        M = cv2.moments(poly)
+        
+        if M["m00"] == 0:
+            return (0, 0)
+        
+        cx = int(M["m10"] / M["m00"])
+        cy = int(M["m01"] / M["m00"])
+        
+        return (cx, cy)
+    
+    def sortPoints(self, pts, prevPts = None):
+        
+        if prevPts is None:
+            center = np.mean(pts, axis = 0)
+            diff = pts - center
+            angles = np.arctan2(diff[:, 1], diff[:, 0])
+            return pts[np.argsort(angles)]
+        
+        orderedPts = np.zeros_like(pts)
+        ptsCopy = pts.copy()
+        
+        for i in range(4):
+            dists = np.linalg.norm(ptsCopy - prevPts[i], axis = 1)
+            idx = np.argmin(dists)
+            orderedPts[i] = ptsCopy[idx]
+            
+            ptsCopy[idx] = [np.inf, np.inf]
+            
+        return orderedPts
     
     # Starts Stream (Change camera info here)         
     def startStream(self):
@@ -601,7 +616,7 @@ class video:
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.yRes)
         self.cap.set(cv2.CAP_PROP_FPS, self.fps)
         self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  #REMOVE THIS LATER
-        self.cap.set(cv2.CAP_PROP_EXPOSURE, -10)
+        self.cap.set(cv2.CAP_PROP_EXPOSURE, -9)
         
         self.running = True
         self.status = "ONLINE"
@@ -639,5 +654,8 @@ class video:
         
     def getVel(self):
         return self.velocity
+    
+    def getVelocityComponents(self):
+        return self.velocity_components
         
         
