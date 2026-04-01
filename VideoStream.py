@@ -602,7 +602,7 @@ class video:
         if self.running:
             return True
         
-        self.cap = cv2.VideoCapture(self.URL, cv2.CAP_DSHOW)   #Change to FFMEG for host camera
+        self.cap = cv2.VideoCapture(self.URL, cv2.CAP_FFMPEG)   #Change to FFMEG for host camera
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         
         if not self.cap.isOpened():
@@ -611,12 +611,12 @@ class video:
             self.cap = None
             return False
         
-        # Change resolution here
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.xRes)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.yRes)
-        self.cap.set(cv2.CAP_PROP_FPS, self.fps)
-        self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  #REMOVE THIS LATER
-        self.cap.set(cv2.CAP_PROP_EXPOSURE, -9)
+        # # Change resolution here
+        # self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.xRes)
+        # self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.yRes)
+        # self.cap.set(cv2.CAP_PROP_FPS, self.fps)
+        # self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  #REMOVE THIS LATER
+        # self.cap.set(cv2.CAP_PROP_EXPOSURE, -9)
         
         self.running = True
         self.status = "ONLINE"

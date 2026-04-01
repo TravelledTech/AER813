@@ -1,40 +1,19 @@
-# %%
-# Redo some of the code to account for 2, wireless cameras (can't really test right now)
-
-# I guess also integrate the mace thing into this
-# Cam1       | Cam2
-# -----------+----------
-# Docking GUI| Controls
-
-# Main frame is 1536x824 (on laptop)
-# Each subframe is 718x382
-
-#Might be able to combine both the rotation and position tracking if I have enough processing power (look into it in the future)
-
-#TODO list
-# Currently the start and end buttons are bugged, works once but cant restart cameras
-# finish telemetry once I actually have it
-# do raspberry pi stuff
-# maybe combine the detection cameras
-# maybe add a scale
-# figure out how the code will feed rotation data to simulink
+# Code speficially used for the MACE test
+# Instead of 2 cameras, use 1 calibrated camera with ardu
 
 import tkinter as tk
 from tkinter import ttk
 from ttkthemes import ThemedStyle
 from PIL import Image, ImageTk
 import cv2
-import requests
-import threading
-import socket
 import time
 import numpy as np
-from VideoStream import video
-import os
+from maceVideoStream import video
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 
-os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "protocol_whitelist;file,rtp,udp|fflags;nobuffer|flags;low_delay|framedrop;1"
 # ===== Main =====
-class Cam: 
+class Cam:
     def __init__(self, root):
         
         #========== Initial Variables ==========
@@ -46,34 +25,25 @@ class Cam:
         
         # If cam is on or off
         self.cam1Status = False
-        self.cam2Status = False
         
         # Status Text
         self.cam1TxT = "OFFLINE"
-        self.cam2TxT = "OFFLINE"
         
-        self.cam1URL = "udp://@239.0.1.1:5000"    # 0 for webcam
-        self.cam2URL = "udp://@239.0.1.1:5001"   #replace when have access to camera
+        self.cam1URL = 0    # 0 for webcam
         
         self.vid1 = video(self.cam1URL)
-        self.vid2 = video(self.cam2URL)
-        
-        # Ellipse for each of the cameras (send to telemetry when done)
-        self.elip1 = None
-        self.elip2 = None
         
         #Ui sizing
         self.xFrameHeight = 0
         self.xFrameWidth = 0
         
-        self.telemetry = [0, 0, 0, 0, 0, 0, 0, 0]
+        self.telemetry = [0, 0, 0, 0, 0, 0]
         # [0] XPosition
         # [1] YPosition
         # [2] ZPosition
-        # [3] XRotation
-        # [4] YRotation
-        # [5] ZRotation
-        # [6] Velocity
+        # [3] Pitch
+        # [4] Roll
+        # [5] Yaw
         
         self.root.bind("<Configure>", self.resize_main)
         
@@ -87,7 +57,7 @@ class Cam:
         self.frameTime = 1000.0/60      # Time between frames (ms)
         
         # ========== Interface stuff ==========
-        root.title("oOOooOOooooOOo")
+        root.title("maceGUI")
         root.attributes("-fullscreen", True)
         #root.geometry("{0}x{1}+0+0".format(root.winfo_screenwidth(), root.winfo_screenheight()))
         #root.geometry("900x560")
@@ -144,13 +114,6 @@ class Cam:
         )
         self.cam1Label.pack(anchor="center")
         
-        self.cam2Label = ttk.Label(
-            dataFrame,
-            text=f"Camera 2 Status: \t\t\t{self.cam2TxT}",
-            font=("Segoe UI", 10),
-            foreground = "lightgray"
-        )
-        self.cam2Label.pack(anchor="center")
         
         ttk.Label(dataFrame, text = "Current Data", foreground = "lightgray", anchor="center", font = ("Segoe UI", 14, "bold")).pack(fill="x")
         ttk.Label(buttonFrame, text = "Controls", foreground = "lightgray", anchor="center", font = ("Segoe UI", 14, "bold")).pack(fill="x")
@@ -182,44 +145,20 @@ class Cam:
         
         ttk.Radiobutton(
             buttonFrame,
-            text="Ellipse Detection",
+            text="ArUco",
             variable=self.mode_var,
             value=1,
             command=self.setMode2
         ).pack(anchor="w", pady=2)
-        
-        ttk.Radiobutton(
-            buttonFrame,
-            text="Ellipse Detection (C)",
-            variable=self.mode_var,
-            value=2,
-            command=self.setMode3
-        ).pack(anchor="w", pady=2)
-        
-        ttk.Radiobutton(
-            buttonFrame,
-            text="Rotation Detection",
-            variable=self.mode_var,
-            value=3,
-            command=self.setMode4
-        ).pack(anchor="w", pady=2)
-        
-        ttk.Radiobutton(
-            buttonFrame,
-            text="Rotation Detection (C)",
-            variable=self.mode_var,
-            value=4,
-            command=self.setMode5
-        ).pack(anchor="w", pady=2)
+
         
         text = (
             f"\nX-Position: \t\t{self.telemetry[0]:.2f}\n"
             f"Y-Position: \t\t{self.telemetry[1]:.2f}\n"
             f"Z-Position: \t\t{self.telemetry[2]:.2f}\n"
-            f"X-Rotation: \t\t{self.telemetry[3]:.2f}\n"
-            f"Y-Rotation: \t\t{self.telemetry[4]:.2f}\n"
-            f"Z-Rotation: \t\t{self.telemetry[5]:.2f}\n"
-            f"Velocity: \t\t\t{self.telemetry[6]:.2f}\n"
+            f"Pitch: \t\t{self.telemetry[3]:.2f}\n"
+            f"Roll: \t\t{self.telemetry[4]:.2f}\n"
+            f"Yaw: \t\t{self.telemetry[5]:.2f}\n"
         )
                 
         self.info = ttk.Label(dataFrame, text=text,
@@ -232,9 +171,36 @@ class Cam:
         self.cam1_label.image = self.fallback
         self.cam1_label.pack(fill="both", expand=True)
         
-        self.cam2_label = ttk.Label(self.TR_Frame, image=self.fallback)
-        self.cam2_label.image = self.fallback
-        self.cam2_label.pack(fill="both", expand=True)
+        # self.cam2_label = ttk.Label(self.TR_Frame, image=self.fallback)
+        # self.cam2_label.image = self.fallback
+        # self.cam2_label.pack(fill="both", expand=True)
+        # replace with matplot
+        
+        # ===== Plot =====
+        self.yawHistory = []
+        self.timeHistory = []
+        self.startTime = 0
+
+        
+        self.fig = Figure(figsize=(5.33, 3), dpi=100, facecolor='#2b2b2b')
+        self.yawPlot = self.fig.add_subplot(111)
+        
+        self.yawPlot.set_facecolor('black')
+        self.yawPlot.tick_params(colors='white', labelsize=9)
+        for spine in self.yawPlot.spines.values():
+            spine.set_color('white')
+        
+        self.fig.tight_layout()
+        self.plotLimit = 100
+        
+        self.yawPlot.set_xlabel("Time (s)", color='white', fontsize=10)
+        self.yawPlot.set_ylabel("Angle (rad)", color='white', fontsize=10)
+        self.yawPlot.set_title("Yaw", color='white', fontsize=12)
+        
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.TR_Frame)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        
+        self.line, = self.yawPlot.plot([], [], color='lawngreen', linewidth=1.5)
 
         #Canvas (for docking UI)
         self.dockingUI = tk.Canvas(self.BL_Frame, width = self.xFrameWidth, height = self.xFrameHeight, background="black", highlightthickness=0)
@@ -244,43 +210,52 @@ class Cam:
     
     # =========== Stream stuff ===========
     def streamThread(self):
-        if self.cam1Status or self.cam2Status:
+        if self.cam1Status:
             self.setFrame()
-            if self.mode == 1:    #Change this later once I actually have both cameras (currently doing position and rotation calculations here, move it to telemetry later)
-                self.elip1 = self.vid1.getEllipse()
-                if not self.elip1 is None:
-                    (cx, cy), (w, h), angle = self.elip1
-                    if w < h:
-                        angle += 90
-                    angle = angle % 180
-                    angle = np.radians(angle)
-                    major = max(w, h)
-                    minor = min(w, h)
-                    phi = np.arccos(minor/major)
-                    
-                    x = np.sin(phi)*np.cos(angle)
-                    y = np.sin(phi)*np.sin(angle)
-                    z = np.cos(phi)
-                    
-                    alpha = np.arctan2(x, z)
-                    beta = np.arctan2(y, z)
-                    
-                    self.telemetry[0] = cx-1280/2
-                    self.telemetry[1] = cy-720/2
-                    self.telemetry[3] = beta
-                    self.telemetry[4] = alpha
-            
-            elif self.mode == 3:
-                self.telemetry = [0, 0, 0, 0, 0, 0, 0]  #Add rotation here later
-                self.telemetry[6] = self.vid1.getVel()
+            if self.mode == 1:
+                 pos = self.vid1.getPos()
+                 rot = self.vid1.getRot()
+                 self.telemetry[0] = pos[0]
+                 self.telemetry[1] = -pos[1]
+                 self.telemetry[2] = pos[2]
+                 
+                 self.telemetry[3] = rot[0] #(rot[0] % (2 * np.pi)) - np.pi
+                 self.telemetry[4] = rot[1]
+                 self.telemetry[5] = rot[2]
+                 
+                 currentTime = time.time() - self.startTime
+                 currentYaw = self.telemetry[4]
+                 self.timeHistory.append(currentTime)
+                 self.yawHistory.append(currentYaw)
+                 
+                 self.changeBars()
+                 self.updateInfo()
+                 self.updateStatus()
+                 if len(self.timeHistory) % 2 == 0:
+                     self.update_plots()
+ 
             else:
-                self.telemetry = [0, 0, 0, 0, 0, 0, 0]
+                 self.telemetry = [0, 0, 0, 0, 0, 0, 0]
+                 self.yawHistory = []
+                 self.timeHistory = []
+                 self.startTime = time.time()
             
             self.changeBars()   #Make sure this only runs on option 1 or 2 later
             self.updateInfo()
             self.updateStatus()
             self.root.after(16, self.streamThread)
-            
+    
+    def update_plots(self):
+        # 1. Push the updated lists to the line object
+        self.line.set_data(self.timeHistory, self.yawHistory)
+        
+        self.yawPlot.relim()
+        self.yawPlot.autoscale_view()
+        
+        self.yawPlot.set_ylim(-np.pi, np.pi)
+        
+        self.canvas.draw()
+        
     # ========= UI Functions Buttons =======
     def print_size(self, event):    # Also resizes the photos
         self.xFrameWidth = event.width
@@ -314,54 +289,25 @@ class Cam:
                 self.cam1_label.configure(image=photo)
                 self.cam1_label.image = photo
         
-        if self.cam2Status == False:
-            self.cam2_label.configure(image=photo)
-            self.cam2_label.image = photo
-        else:
-            f2 = self.vid2.getFrame()
-            if f2 is not None:
-                frame = cv2.resize(f2, (self.xFrameWidth, self.xFrameHeight))
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-                tk_img = ImageTk.PhotoImage(Image.fromarray(frame))
-                self.cam2_label.configure(image=tk_img)
-                self.cam2_label.image = tk_img
-            else:
-                self.cam2_label.configure(image=photo)
-                self.cam2_label.image = photo
             
     def startStream(self):
-        # Only start if not already online
-        if not self.cam1Status:
-            self.cam1Status = self.vid1.startStream()
-        if not self.cam2Status:
-            self.cam2Status = self.vid2.startStream()
+        self.cam1Status = self.vid1.startStream()
         
-        # Start the UI update loop ONLY if it's not already looping
-        # We'll use a new variable 'self.uiLooping' to track this
-        if not hasattr(self, 'uiLooping') or not self.uiLooping:
-            self.uiLooping = True
-            self.streamThread()
-
+        self.yawHistory = []
+        self.timeHistory = []
+        self.startTime = time.time()
+        
+        self.streamThread()
+    
     def endStream(self):
         self.cam1Status = False
-        self.cam2Status = False
         self.vid1.endStream()
-        self.vid2.endStream()
-        self.uiLooping = False # Tell the UI loop to stop
-        self.updateStatus()
-        self.setFrame() # Reset to fallback image
         
     def updateStatus(self):
     
         self.cam1TxT = self.vid1.getStatus()
-        self.cam2TxT = self.vid2.getStatus()
     
         self.cam1Label.config(text=f"Camera 1 Status: {self.cam1TxT}")
-        self.cam2Label.config(text=f"Camera 2 Status: {self.cam2TxT}")
-        
-    def updateTelemetry(self):
-        print("Not implemented yet")
     
     def exitApp(self):
         self.root.destroy()
@@ -395,37 +341,20 @@ class Cam:
             f"\nX-Position: \t\t{self.telemetry[0]:.2f}\n"
             f"Y-Position: \t\t{self.telemetry[1]:.2f}\n"
             f"Z-Position: \t\t{self.telemetry[2]:.2f}\n"
-            f"X-Rotation: \t\t{self.telemetry[3]:.2f}\n"
-            f"Y-Rotation: \t\t{self.telemetry[4]:.2f}\n"
-            f"Z-Rotation: \t\t{self.telemetry[5]:.2f}\n"
-            f"Velocity: \t\t\t{self.telemetry[6]:.2f}\n"
+            f"Pitch: \t\t{self.telemetry[3]:.2f}\n"
+            f"Roll: \t\t{self.telemetry[5]:.2f}\n"
+            f"Yaw: \t\t{self.telemetry[4]:.2f}\n"
         )
         self.info.config(text=text)
     
     def setMode1(self): #Standard Cam
         self.vid1.setMode(0)
-        self.vid2.setMode(0)
         self.mode = 0
     
     def setMode2(self): #Ellipse Cam
         self.vid1.setMode(1)
-        self.vid2.setMode(1)
         self.mode = 1
     
-    def setMode3(self): #Contour Ellipse Cam
-        self.vid1.setMode(2)
-        self.vid2.setMode(2)
-        self.mode = 2
-    
-    def setMode4(self): #Rotation Cam
-        self.vid1.setMode(3)
-        self.vid2.setMode(3)
-        self.mode = 3
-    
-    def setMode5(self): #Contour Rotation Cam
-        self.vid1.setMode(4)
-        self.vid2.setMode(4)
-        self.mode = 4
         
     def createUI(self, event):
         # Canvas
@@ -546,13 +475,12 @@ class Cam:
     
     def changeBars(self):
         # Add a proper Scale
-        xPos = self.telemetry[0]    #Im assuming it will be in cm?
-        yPos = self.telemetry[1]
-        zPos = self.telemetry[2]
-        xRot = self.telemetry[3]*100    #Im assuming in radians?
-        yRot = self.telemetry[4]*100
+        xPos = self.telemetry[0]*500    #Im assuming it will be in cm?
+        yPos = self.telemetry[1]*500
+        zPos = self.telemetry[2]*500
+        xRot = self.telemetry[4]*100    #Im assuming in radians?
+        yRot = self.telemetry[3]*100
         zRot = self.telemetry[5]
-        zVel = self.telemetry[6]*10
         
         #Currently the main scale is every 15pixels
         # every 20 pixels for the z position
@@ -582,7 +510,7 @@ class Cam:
         self.dockingUI.coords(self.reticle[3], mid+xRot+15, ymid+yRot, mid+xRot+25, ymid+yRot)
         self.dockingUI.coords(self.reticle[4], mid+xRot-15, ymid+yRot, mid+xRot-25, ymid+yRot)
         
-        self.dockingUI.coords(self.rotBar, pc1, ymid+zVel, pc2, ymid+zVel)
+        self.dockingUI.coords(self.rotBar, pc1, ymid+zPos, pc2, ymid+zPos)
 # ---------------- RUN ----------------
 root = tk.Tk()
 app = Cam(root)
