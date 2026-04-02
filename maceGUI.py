@@ -11,12 +11,17 @@ import numpy as np
 from maceVideoStream import video
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+import serial
+import control
 
 # ===== Main =====
 class Cam:
     def __init__(self, root):
         
         #========== Initial Variables ==========
+        
+        self.timeH = [] # Used for angular velocity calculation
+        self.angleH = []
         
         self.root = root
         self.UIToggle = True
@@ -37,13 +42,22 @@ class Cam:
         self.xFrameHeight = 0
         self.xFrameWidth = 0
         
-        self.telemetry = [0, 0, 0, 0, 0, 0]
+        self.telemetry = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         # [0] XPosition
         # [1] YPosition
         # [2] ZPosition
         # [3] Pitch
         # [4] Roll
         # [5] Yaw
+        # [6] Yaw velocity
+        # [7] Steady state
+        # [8] Overshoot%
+        # [9] Settling time
+        
+        # ========== CHANGE THIS DEPENDIGN ON WHICH PORT THE ARDUINO IS IN =========
+        PORT = 'COM4' 
+        BAUD = 115200
+        self.ser = serial.Serial(PORT, BAUD, timeout=0.1, write_timeout=0)
         
         self.root.bind("<Configure>", self.resize_main)
         
@@ -127,11 +141,21 @@ class Cam:
         ttk.Button(buttonFrame,
                                 text = "End Cameras",
                                 command = self.endStream).pack(fill="x")
+        ttk.Button(buttonFrame,
+                                text = "Reset Plot",
+                                command = self.resetPlot).pack(fill="x")
         
-        self.UIOverlay = tk.BooleanVar(value=True)
-        ttk.Checkbutton(buttonFrame, text="Enable Overlay",
-                        variable=self.UIOverlay,
-                        command=self.exitApp).pack()
+        self.kpEntry = ttk.Entry(buttonFrame)
+        self.kpEntry.pack(fill="x")
+        self.kpEntry.bind("<Return>", self.Kp)
+        
+        self.kiEntry = ttk.Entry(buttonFrame)
+        self.kiEntry.pack(fill="x")
+        self.kiEntry.bind("<Return>", self.Ki)
+        
+        self.kdEntry = ttk.Entry(buttonFrame)
+        self.kdEntry.pack(fill="x")
+        self.kdEntry.bind("<Return>", self.Kd)
         
         self.mode_var = tk.StringVar(value=0)
         self.mode = 0
@@ -156,9 +180,13 @@ class Cam:
             f"\nX-Position: \t\t{self.telemetry[0]:.2f}\n"
             f"Y-Position: \t\t{self.telemetry[1]:.2f}\n"
             f"Z-Position: \t\t{self.telemetry[2]:.2f}\n"
-            f"Pitch: \t\t{self.telemetry[3]:.2f}\n"
-            f"Roll: \t\t{self.telemetry[4]:.2f}\n"
-            f"Yaw: \t\t{self.telemetry[5]:.2f}\n"
+            f"Pitch: \t\t\t{self.telemetry[3]:.2f}\n"
+            f"Roll: \t\t\t{self.telemetry[4]:.2f}\n"
+            f"Yaw: \t\t\t{self.telemetry[5]:.2f}\n"
+            f"Rotation: \t\t{self.telemetry[6]:.2f}\n\n"
+            f"Error: \t\t\t{self.telemetry[7]:.2f}\n"
+            f"Overshoot: \t\t{self.telemetry[8]:.2f}\n"
+            f"Settling Time: \t\t{self.telemetry[9]:.2f}\n"
         )
                 
         self.info = ttk.Label(dataFrame, text=text,
@@ -225,17 +253,45 @@ class Cam:
                  
                  currentTime = time.time() - self.startTime
                  currentYaw = self.telemetry[4]
+                 
+                 if not hasattr(self, 'last_send'): 
+                    self.last_send = 0
+                 
+                 # For Vel
+                 self.timeH.append(currentTime)
+                 self.angleH.append(currentYaw)
+                 vel = 0
+                 length = len(self.angleH)
+                 if length >= 2:
+                     if length > 5:
+                         self.timeH.pop(0)
+                         self.angleH.pop(0)
+                         
+                     dt = self.timeH[-1] - self.timeH[0]
+                     if dt > 0:
+                         vel = (self.angleH[-1]-self.angleH[0])/dt
+                 
+                 self.telemetry[6] = vel   
+                 
+                 # For plot
                  self.timeHistory.append(currentTime)
                  self.yawHistory.append(currentYaw)
                  
-                 self.changeBars()
-                 self.updateInfo()
-                 self.updateStatus()
+                 if self.yawHistory[0] == 0:
+                     self.yawHistory.pop(0)
+                     self.timeHistory.pop(0)
+                 
                  if len(self.timeHistory) % 2 == 0:
-                     self.update_plots()
+                     self.updatePlots()
+                     self.calcMetrics()
+                
+                # packet limiter (currently sending at 30hz)
+                 if currentTime - self.last_send >= 0.033:
+                     self.sentDualData(-self.telemetry[4], self.telemetry[6])
+                     self.last_send = currentTime
  
             else:
-                 self.telemetry = [0, 0, 0, 0, 0, 0, 0]
+                 self.telemetry = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
                  self.yawHistory = []
                  self.timeHistory = []
                  self.startTime = time.time()
@@ -245,7 +301,25 @@ class Cam:
             self.updateStatus()
             self.root.after(16, self.streamThread)
     
-    def update_plots(self):
+    def sendData(self, label, value):
+        message = f"{label}{value}\n"
+        try:
+            if self.ser and self.ser.is_open:
+                # Format: "A0.15\n"
+                packet = f"{label}{value:.4f}\n" 
+                self.ser.write(packet.encode())
+        except Exception as e:
+            print(f"Serial Error: {e}")
+            
+    def sentDualData(self, angl, vel):
+        message = f"<{angl:.4f},{vel:.4f}>\n"
+        try:
+            if self.ser and self.ser.is_open:
+                self.ser.write(message.encode())
+        except Exception as e:
+            print(f"Serial Error: {e}")
+    
+    def updatePlots(self):
         # 1. Push the updated lists to the line object
         self.line.set_data(self.timeHistory, self.yawHistory)
         
@@ -257,6 +331,63 @@ class Cam:
         self.canvas.draw()
         
     # ========= UI Functions Buttons =======
+    def resetPlot(self):
+        self.timeH = [] # Used for angular velocity calculation
+        self.angleH = []
+        self.yawHistory = []
+        self.timeHistory = []
+        self.startTime = time.time()
+        
+    def calcMetrics(self):
+        # self.yawHistory = []
+        # self.timeHistory = []
+        
+        if len(self.yawHistory) < 2:
+            return
+        
+        initialOffset = self.yawHistory[0]
+        initialJump = abs(initialOffset)
+        
+        if initialOffset > 0:
+            # Started positive -> Overshoot is the lowest negative number
+            peak_past_zero = min(self.yawHistory)
+            if peak_past_zero > 0: 
+                peak_past_zero = 0.0 # Hasn't crossed the 0 line yet
+        else:
+            # Started negative -> Overshoot is the highest positive number
+            peak_past_zero = max(self.yawHistory)
+            if peak_past_zero < 0: 
+                peak_past_zero = 0.0 # Hasn't crossed the 0 line yet
+    
+        overshoot = (abs(peak_past_zero) / initialJump) * 100
+        steadyState = self.yawHistory[-1]
+        
+        if overshoot > 500: 
+            overshoot = 0
+        # [7] Steady state
+        # [8] Overshoot%
+        # [9] Settling time
+        self.telemetry[7] = steadyState
+        self.telemetry[8] = overshoot
+        #self.telemetry[9] = sett
+        
+    def calcSettling(self):
+        if len(self.timeHistory) < 10:
+            return
+        startTime = self.timeHistory[0]
+        target = 0
+        finalValue = self.yawHistory[-1]
+        
+        initialJump = abs(self.yawHistory[0] - target)
+        band = 0.1 * initialJump   #5% of peak value
+        
+        settlingIndex = 0
+        for i in range(len(self.timeHistory)-1, -1, -1):
+            if abs(self.yawHistory[i] - finalValue) > band:
+                settlingIndex = i
+                break
+        self.telemetry[9] = self.timeHistory[settlingIndex] - startTime
+        
     def print_size(self, event):    # Also resizes the photos
         self.xFrameWidth = event.width
         self.xFrameHeight = event.height
@@ -300,7 +431,14 @@ class Cam:
         self.streamThread()
     
     def endStream(self):
+        self.calcSettling()
+        self.updateInfo()
         self.cam1Status = False
+        
+        if hasattr(self, 'ser') and self.ser.is_open:
+            self.ser.reset_output_buffer() 
+            self.ser.reset_input_buffer()
+        
         self.vid1.endStream()
         
     def updateStatus(self):
@@ -310,6 +448,10 @@ class Cam:
         self.cam1Label.config(text=f"Camera 1 Status: {self.cam1TxT}")
     
     def exitApp(self):
+        
+        if hasattr(self, 'ser') and self.ser.is_open:
+            self.ser.close()
+
         self.root.destroy()
         
     # Makes sure it stays 16/9
@@ -341,9 +483,13 @@ class Cam:
             f"\nX-Position: \t\t{self.telemetry[0]:.2f}\n"
             f"Y-Position: \t\t{self.telemetry[1]:.2f}\n"
             f"Z-Position: \t\t{self.telemetry[2]:.2f}\n"
-            f"Pitch: \t\t{self.telemetry[3]:.2f}\n"
-            f"Roll: \t\t{self.telemetry[5]:.2f}\n"
-            f"Yaw: \t\t{self.telemetry[4]:.2f}\n"
+            f"Pitch: \t\t\t{self.telemetry[3]:.2f}\n"
+            f"Roll: \t\t\t{self.telemetry[4]:.2f}\n"
+            f"Yaw: \t\t\t{self.telemetry[5]:.2f}\n"
+            f"Rotation: \t\t{self.telemetry[6]:.2f}\n\n"
+            f"Error: \t\t\t{self.telemetry[7]:.2f}\n"
+            f"Overshoot: \t\t{self.telemetry[8]:.2f}\n"
+            f"Settling Time: \t\t{self.telemetry[9]:.2f}\n"
         )
         self.info.config(text=text)
     
@@ -355,6 +501,23 @@ class Cam:
         self.vid1.setMode(1)
         self.mode = 1
     
+    def Kp(self, event):
+        value = self.kpEntry.get()
+        value = float(value)
+        
+        self.sendData("P", value)
+        
+    def Ki(self, event):
+        value = self.kiEntry.get()
+        value = float(value)
+        
+        self.sendData("I", value)
+        
+    def Kd(self, event):
+        value = self.kdEntry.get()
+        value = float(value)
+        
+        self.sendData("D", value)
         
     def createUI(self, event):
         # Canvas
