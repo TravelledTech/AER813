@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 import threading
 import time
+import os
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "protocol_whitelist;file,rtp,udp|fflags;nobuffer|flags;low_delay|framedrop;1"
 
 # Use this class for handling video streaming (Probably also use this for the edge detection and position handling)
 # Have 2 methods of score
@@ -29,7 +31,7 @@ import time
 # Figure out how to prune the points and figure out how to deal with frame skips
 
 class video:
-    def __init__(self, URL):
+    def __init__(self, URL, calib):
         
         #Stuff for camera
         self.URL = URL
@@ -42,6 +44,8 @@ class video:
         # 2 = Ellipse Contours
         # 3 = Spinning
         # 4 = Spinning contours
+        
+        self.conBool = False
         
         # Camera specs
         self.fps = 60
@@ -60,7 +64,7 @@ class video:
         self.output = None
         self.outVar = 0
         
-        self.delay = 10 #elay between each frame (in ms)
+        self.delay = 10 #delay between each frame (in ms)
         
         self.poly = None
         
@@ -82,11 +86,7 @@ class video:
         self.lastRVEC = {}
         self.lastTime = time.perf_counter()
         
-        self.camMatrix = np.array([
-            [self.xRes, 0, self.xRes/2],
-            [0, self.xRes, self.yRes/2],
-            [0, 0, 1]
-        ], dtype=np.float32)
+        self.camMatrix = calib
         
         self.prevPts = None
         
@@ -96,35 +96,47 @@ class video:
         
         
 
-    # Runs the streaming thread (all camera stuff will happen here)
+    # Runs the streaming thread (all camera stuff will happen here) (moved to processes)
     def stream_thread(self):
-        while self.running:
-            ret, frame = self.cap.read()
+        try:
+            while self.running:
+                if self.cap is None or not self.cap.isOpened():
+                    break
+                
+                try:
+                    if not self.cap.grab():
+                        time.sleep(0.01)
+                        continue
+                    
+                    ret, frame = self.cap.retrieve()
+                    if not ret or frame is None:
+                        continue
+                    
+                    self.processes(frame)
+                except Exception as e:
+                    print(f"Error grabbing frame: {e}")
+                    break
+        finally:
+            print(f"Safely releasing camera {self.URL}...")
+            if self.cap is not None:
+                self.cap.release()
+                self.cap = None
             
-            if not ret:
-                continue
             
-            frameRGB = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-            # ==== Rotating frame ==== (if needed) (probably not)
-            #frame_rgb = cv2.rotate(frame_rgb, cv2.ROTATE_90_CLOCKWISE)
-            
-            
-            grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            
-            #Change whats being outputted
-            if self.mode == 0:      #Normal
-                self.output = frame
-            elif self.mode == 1:    # Ellipse
-                self.output = self.contourDetection(grey, frame)
-            elif self.mode == 2:    #EllipseC
-                self.output = self.contourPreprocessing(grey, frame)
-            elif self.mode == 3:    #Spin
-                #self.output = self.cornerDetection(grey, frame)
-                #self.angularVel()
-                self.output = self.rotationV3(grey, frame)
-            else:                   #SpinC
-                self.output = self.cornerPreprocessing2(grey, frame)
+                
+    def processes(self, frame):
+        grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        if self.mode == 0:  #Normal
+            self.output = frame
+        elif self.mode == 1:    #Ellipse
+            self.output = self.contourDetection(grey, frame)
+        elif self.mode == 2:    #EllipseC
+            self.output = self.rotationV2(grey, frame)
+            self.angularVel()
+        elif self.mode == 3:    #EllipseC
+            self.output = self.rotationV3(grey, frame)
+        
     
     def angularVel(self):   #Only used for rotationV2, uses the vectors of each side to determine rotation rate, swith to PnP solver for V3
         if not self.prevPoly is None:
@@ -314,7 +326,10 @@ class video:
         if self.outVar >= 20:
             self.hasFound = False
         
-        return annotated
+        if self.conBool:
+            return edges
+        else:
+            return annotated
     
     #Finds the spin rate (kinda bad right now)
     def rotationV2(self, grey, frame):
@@ -362,90 +377,93 @@ class video:
             self.poly = best_candidate
             cv2.drawContours(annotated, [self.poly], 0, (0, 255, 0), 2)
         
-        return annotated
+        if self.conBool:
+            return edges
+        else:
+            return annotated
     
     # Old (bad) code for rotation detection
-    def rotationV1(self, grey, frame):
-        # Detect a square every so often (maybe every 60 frames (or every second))
-        # Find corners in the right range
-        blurred = cv2.GaussianBlur(grey, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
+    # def rotationV1(self, grey, frame):
+    #     # Detect a square every so often (maybe every 60 frames (or every second))
+    #     # Find corners in the right range
+    #     blurred = cv2.GaussianBlur(grey, (5, 5), 0)
+    #     edges = cv2.Canny(blurred, 50, 150)
         
-        edges = self.testPreproccessing(grey, frame)
+    #     edges = self.testPreproccessing(grey, frame)
         
-        #annotated = edges.copy()
-        annotated = frame.copy()
+    #     #annotated = edges.copy()
+    #     annotated = frame.copy()
         
-        if True: #self.countFrames%20 == 0:    #Refinds the square every X frames
+    #     if True: #self.countFrames%20 == 0:    #Refinds the square every X frames
 
-            # ========== Find contours ==========
-            contours, _ = cv2.findContours(
-                edges,
-                cv2.RETR_TREE,              #SWITCH EXTERNAL <---> TREE
-                cv2.CHAIN_APPROX_SIMPLE     #SWITCH SIMPLE <---> NONE
-            )  
+    #         # ========== Find contours ==========
+    #         contours, _ = cv2.findContours(
+    #             edges,
+    #             cv2.RETR_TREE,              #SWITCH EXTERNAL <---> TREE
+    #             cv2.CHAIN_APPROX_SIMPLE     #SWITCH SIMPLE <---> NONE
+    #         )  
             
-            for cnt in contours:
-                epsilon = 0.02 * cv2.arcLength(cnt, True)
-                square = cv2.approxPolyDP(cnt, epsilon, True)
-                # ========== Filters ===========
-                if not len(square) == 4:    #Makes sure it has 4 edges
-                    continue
+    #         for cnt in contours:
+    #             epsilon = 0.02 * cv2.arcLength(cnt, True)
+    #             square = cv2.approxPolyDP(cnt, epsilon, True)
+    #             # ========== Filters ===========
+    #             if not len(square) == 4:    #Makes sure it has 4 edges
+    #                 continue
                 
-                area = cv2.contourArea(square)
+    #             area = cv2.contourArea(square)
                 
-                if area < 800:      #Min area
-                    continue
+    #             if area < 800:      #Min area
+    #                 continue
                 
-                rect = cv2.minAreaRect(cnt)
-                (x, y), (w, h), angle = rect
-                if h == 0 or w == 0:
-                    continue
-                ratio = min(w, h) / max(w, h)
+    #             rect = cv2.minAreaRect(cnt)
+    #             (x, y), (w, h), angle = rect
+    #             if h == 0 or w == 0:
+    #                 continue
+    #             ratio = min(w, h) / max(w, h)
                 
-                if ratio < 0.8:
-                    continue
+    #             if ratio < 0.8:
+    #                 continue
                 
-                self.poly = square
+    #             self.poly = square
                 
-        if self.poly is None:   # Makes sure always finds a square before proceeding
-            self.countFrames -= 1
+    #     if self.poly is None:   # Makes sure always finds a square before proceeding
+    #         self.countFrames -= 1
             
-        # =========== Corner Detection ===========
-        else:
-            cv2.drawContours(annotated, [self.poly], 0, (0,255,0), 2)
+    #     # =========== Corner Detection ===========
+    #     else:
+    #         cv2.drawContours(annotated, [self.poly], 0, (0,255,0), 2)
             
-            M = cv2.moments(self.poly)
+    #         M = cv2.moments(self.poly)
 
-            cx = int(M["m10"] / M["m00"])
-            cy = int(M["m01"] / M["m00"])
+    #         cx = int(M["m10"] / M["m00"])
+    #         cy = int(M["m01"] / M["m00"])
             
-            x, y, w, h = cv2.boundingRect(self.poly)
-            area = cv2.contourArea(self.poly)
+    #         x, y, w, h = cv2.boundingRect(self.poly)
+    #         area = cv2.contourArea(self.poly)
             
-            ran = int((area**.5)/(2**.5))  # Maximum distance away from center
+    #         ran = int((area**.5)/(2**.5))  # Maximum distance away from center
             
-            mask = np.zeros(blurred.shape, dtype=np.uint8)
-            cv2.circle(mask, (cx, cy), ran, 255, -1)
+    #         mask = np.zeros(blurred.shape, dtype=np.uint8)
+    #         cv2.circle(mask, (cx, cy), ran, 255, -1)
         
-            # cv2.goodFeaturesToTrack(image, maxCorners, qualityLevel, minDistance)
-            corners = cv2.goodFeaturesToTrack(edges,200,0.01,10, mask=mask)
+    #         # cv2.goodFeaturesToTrack(image, maxCorners, qualityLevel, minDistance)
+    #         corners = cv2.goodFeaturesToTrack(edges,200,0.01,10, mask=mask)
             
-            if corners is not None:
-                corners = corners.astype(int)
-                for corner in corners:
-                    x, y = corner.ravel()
+    #         if corners is not None:
+    #             corners = corners.astype(int)
+    #             for corner in corners:
+    #                 x, y = corner.ravel()
                     
-                    dist = np.sqrt((cx-x)**2 + (cy-y)**2)
-                    diff = abs((ran-dist)/ran)
+    #                 dist = np.sqrt((cx-x)**2 + (cy-y)**2)
+    #                 diff = abs((ran-dist)/ran)
                     
-                    if diff > 0.1:
-                        continue
-                    cv2.circle(annotated, (x, y), 5, (255, 0, 0), -1)
+    #                 if diff > 0.1:
+    #                     continue
+    #                 cv2.circle(annotated, (x, y), 5, (255, 0, 0), -1)
         
-        self.countFrames += 1
-        print(self.countFrames)
-        return annotated
+    #     self.countFrames += 1
+    #     print(self.countFrames)
+    #     return annotated
         
     def rotationV3(self, grey, frame):
         edges = self.cornerPreprocessing2(grey, frame)
@@ -563,7 +581,10 @@ class video:
         
         self.lastTime = currTime
         self.lastRVEC = nextRVEC
-        return annotated
+        if self.conBool:
+            return edges
+        else:
+            return annotated
     
     #Gets centroid of given polygon
     def getCentroid(self, poly):
@@ -629,9 +650,9 @@ class video:
         self.running = False
         self.status = "OFFLINE"
         
-        if self.cap:
-            self.cap.release()
-            self.cap = None
+        # if self.cap:
+        #     self.cap.release()
+        #     self.cap = None
     
     # Return Selected Captured Frame
     def getFrame(self):
@@ -651,6 +672,9 @@ class video:
     def setMode(self, mode):
         self.hasFound = False
         self.mode = mode
+        
+    def setCon(self, mode):
+        self.conBool = mode
         
     def getVel(self):
         return self.velocity

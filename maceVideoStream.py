@@ -49,25 +49,28 @@ class video:
     # Runs the streaming thread (all camera stuff will happen here)
     def stream_thread(self):
         while self.running:
-            ret, frame = self.cap.read()
+            if not self.cap.grab():
+                continue
             
+            ret, frame = self.cap.retrieve()
             if not ret:
                 continue
             
-            frameRGB = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            self.processes(frame)
             
             # ==== Rotating frame ==== (if needed) (probably not)
             #frame_rgb = cv2.rotate(frame_rgb, cv2.ROTATE_90_CLOCKWISE)
             
+    def processes(self, frame):
+        
+        grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        
+        if self.mode == 0:      #Normal
+            self.output = frame
             
-            grey = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        elif self.mode == 1:    # Ellipse
+            self.output = self.ArUco(grey, frame)
             
-            #Change whats being outputted
-            if self.mode == 0:      #Normal
-                self.output = frame
-                
-            elif self.mode == 1:    # Ellipse
-                self.output = self.ArUco(grey, frame)
     
     def ArUco(self, grey, frame):
         corners, ids, rejected = self.detector.detectMarkers(grey)

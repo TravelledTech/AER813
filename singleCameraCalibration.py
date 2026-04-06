@@ -2,15 +2,12 @@ import numpy as np
 import cv2
 import json
 
-# 1. Setup constants
-# For a 9x7 board, there are 8x6 internal corners
 CHESSBOARD_SIZE = (8, 6) 
 SQUARE_SIZE = 25  # mm
 
 # Termination criteria for sub-pixel accuracy
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
-# Prepare object points (0,0,0), (25,0,0), (50,0,0) ...
 objp = np.zeros((CHESSBOARD_SIZE[0] * CHESSBOARD_SIZE[1], 3), np.float32)
 objp[:, :2] = np.mgrid[0:CHESSBOARD_SIZE[0], 0:CHESSBOARD_SIZE[1]].T.reshape(-1, 2)
 objp *= SQUARE_SIZE
@@ -56,7 +53,6 @@ while True:
 cap.release()
 cv2.destroyAllWindows()
 
-# 2. Calibration Calculation
 if len(imgpoints) > 10:
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
     
@@ -66,7 +62,6 @@ if len(imgpoints) > 10:
         json.dump(data, f)
     print("Calibration successful! Data saved to calibration_data.json")
     
-    # ... (after the calibrateCamera line)
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
     
     print(f"Total Re-projection Error: {ret:.4f} pixels")

@@ -19,6 +19,10 @@
 # maybe add a scale
 # figure out how the code will feed rotation data to simulink
 
+#motor_pins = [17, 18, 27, 22]  (M)
+#servo1 = Servo(23) (S)
+#servo2 = Servo(24) (D)
+
 import tkinter as tk
 from tkinter import ttk
 from ttkthemes import ThemedStyle
@@ -31,11 +35,20 @@ import time
 import numpy as np
 from VideoStream import video
 import os
+from Telemetry import tele
 
 os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "protocol_whitelist;file,rtp,udp|fflags;nobuffer|flags;low_delay|framedrop;1"
 # ===== Main =====
 class Cam: 
     def __init__(self, root):
+        
+        self.calib = np.load('stereoCalib.npz')
+        self.tele = tele(self.calib)
+        
+        #For communicating to pi
+        self.PI_IP = "10.42.0.1"
+        self.PORT = 6000
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         
         #========== Initial Variables ==========
         
@@ -52,11 +65,11 @@ class Cam:
         self.cam1TxT = "OFFLINE"
         self.cam2TxT = "OFFLINE"
         
-        self.cam1URL = "udp://@239.0.1.1:5000"    # 0 for webcam
-        self.cam2URL = "udp://@239.0.1.1:5001"   #replace when have access to camera
+        self.cam1URL = "udp://@239.0.1.1:5001"    # 0 for webcam
+        self.cam2URL = "udp://@239.0.1.1:5000"   #replace when have access to camera
         
-        self.vid1 = video(self.cam1URL)
-        self.vid2 = video(self.cam2URL)
+        self.vid1 = video(self.cam1URL, self.calib['mtx0'])
+        self.vid2 = video(self.cam2URL, self.calib['mtx1'])
         
         # Ellipse for each of the cameras (send to telemetry when done)
         self.elip1 = None
@@ -132,6 +145,8 @@ class Cam:
         buttonFrame = ttk.Frame(self.BR_Frame)
         dataFrame.grid(column=0, row=1, sticky="nsew", padx=5, pady=20)
         buttonFrame.grid(column=1, row=1, sticky="nsew", padx=5, pady=20)
+        buttonFrame.columnconfigure(0, weight=1, uniform="group1")
+        buttonFrame.columnconfigure(1, weight=1, uniform="group1")
 
         # ========== UI Elements ==========
         ttk.Label(dataFrame, text = "Status", foreground = "lightgray", anchor="center", font = ("Segoe UI", 14, "bold")).pack(fill="x")
@@ -153,22 +168,22 @@ class Cam:
         self.cam2Label.pack(anchor="center")
         
         ttk.Label(dataFrame, text = "Current Data", foreground = "lightgray", anchor="center", font = ("Segoe UI", 14, "bold")).pack(fill="x")
-        ttk.Label(buttonFrame, text = "Controls", foreground = "lightgray", anchor="center", font = ("Segoe UI", 14, "bold")).pack(fill="x")
+        ttk.Label(buttonFrame, text = "Controls", foreground = "lightgray", anchor="center", font = ("Segoe UI", 14, "bold")).grid(row=0, column=0, columnspan=2, sticky="ew")
         
         ttk.Button(buttonFrame,
                                 text = "EXIT",
-                                command = self.exitApp).pack(fill="x")
+                                command = self.exitApp).grid(row=1, column=0, columnspan=2, sticky="ew")
         ttk.Button(buttonFrame,
                                 text = "Start Cameras",
-                                command = self.startStream).pack(fill="x")
+                                command = self.startStream).grid(row=2, column=0, columnspan=2, sticky="ew")
         ttk.Button(buttonFrame,
                                 text = "End Cameras",
-                                command = self.endStream).pack(fill="x")
+                                command = self.endStream).grid(row=3, column=0, columnspan=2, sticky="ew")
         
-        self.UIOverlay = tk.BooleanVar(value=True)
-        ttk.Checkbutton(buttonFrame, text="Enable Overlay",
-                        variable=self.UIOverlay,
-                        command=self.exitApp).pack()
+        self.contourView = tk.BooleanVar(value=False)
+        ttk.Checkbutton(buttonFrame, text="Contour View",
+                        variable=self.contourView,
+                        command=self.setCon).grid(row=4, column=0, columnspan=2)
         
         self.mode_var = tk.StringVar(value=0)
         self.mode = 0
@@ -178,7 +193,7 @@ class Cam:
             variable=self.mode_var,
             value=0,
             command=self.setMode1
-        ).pack(anchor="w", pady=2)
+        ).grid(row=5, column=0)
         
         ttk.Radiobutton(
             buttonFrame,
@@ -186,31 +201,32 @@ class Cam:
             variable=self.mode_var,
             value=1,
             command=self.setMode2
-        ).pack(anchor="w", pady=2)
+        ).grid(row=6, column=0)
         
         ttk.Radiobutton(
             buttonFrame,
-            text="Ellipse Detection (C)",
+            text="Rotation Detection V2",
             variable=self.mode_var,
             value=2,
             command=self.setMode3
-        ).pack(anchor="w", pady=2)
+        ).grid(row=5, column=1)
         
         ttk.Radiobutton(
             buttonFrame,
-            text="Rotation Detection",
+            text="Rotation Detection V3",
             variable=self.mode_var,
             value=3,
             command=self.setMode4
-        ).pack(anchor="w", pady=2)
+        ).grid(row=6, column=1)
         
-        ttk.Radiobutton(
-            buttonFrame,
-            text="Rotation Detection (C)",
-            variable=self.mode_var,
-            value=4,
-            command=self.setMode5
-        ).pack(anchor="w", pady=2)
+        self.serv1Entry = ttk.Entry(buttonFrame)
+        self.serv1Entry.grid(row=7, column=0, sticky='ew')
+        self.serv1Entry.bind("<Return>", self.servo1)
+        
+        self.serv2Entry = ttk.Entry(buttonFrame)
+        self.serv2Entry.grid(row=7, column=1, sticky='ew')
+        self.serv2Entry.bind("<Return>", self.servo2)
+
         
         text = (
             f"\nX-Position: \t\t{self.telemetry[0]:.2f}\n"
@@ -244,44 +260,78 @@ class Cam:
     
     # =========== Stream stuff ===========
     def streamThread(self):
+        if not hasattr(self, 'uiLooping') or not self.uiLooping:
+            return
         if self.cam1Status or self.cam2Status:
             self.setFrame()
             if self.mode == 1:    #Change this later once I actually have both cameras (currently doing position and rotation calculations here, move it to telemetry later)
                 self.elip1 = self.vid1.getEllipse()
-                if not self.elip1 is None:
-                    (cx, cy), (w, h), angle = self.elip1
-                    if w < h:
-                        angle += 90
-                    angle = angle % 180
-                    angle = np.radians(angle)
-                    major = max(w, h)
-                    minor = min(w, h)
-                    phi = np.arccos(minor/major)
+                self.elip2 = self.vid2.getEllipse()
+                if not self.elip1 is None and not self.elip2 is None:
+                    # (cx, cy), (w, h), angle = self.elip1
+                    # if w < h:
+                    #     angle += 90
+                    # angle = angle % 180
+                    # angle = np.radians(angle)
+                    # major = max(w, h)
+                    # minor = min(w, h)
+                    # phi = np.arccos(minor/major)
                     
-                    x = np.sin(phi)*np.cos(angle)
-                    y = np.sin(phi)*np.sin(angle)
-                    z = np.cos(phi)
+                    # x = np.sin(phi)*np.cos(angle)
+                    # y = np.sin(phi)*np.sin(angle)
+                    # z = np.cos(phi)
                     
-                    alpha = np.arctan2(x, z)
-                    beta = np.arctan2(y, z)
+                    # alpha = np.arctan2(x, z)
+                    # beta = np.arctan2(y, z)
                     
-                    self.telemetry[0] = cx-1280/2
-                    self.telemetry[1] = cy-720/2
-                    self.telemetry[3] = beta
-                    self.telemetry[4] = alpha
+                    temp = self.tele.calcTelemetry(self.elip1, self.elip2)
+                    
+                    if not temp is None:
+                        self.telemetry[0] = temp[0]
+                        self.telemetry[1] = temp[1]
+                        self.telemetry[2] = temp[2]
+                        self.telemetry[3] = temp[4]
+                        self.telemetry[4] = temp[3]
             
-            elif self.mode == 3:
+            elif self.mode == 2 or self.mode == 3:
                 self.telemetry = [0, 0, 0, 0, 0, 0, 0]  #Add rotation here later
-                self.telemetry[6] = self.vid1.getVel()
+                v1 = self.vid1.getVel()
+                v2 = self.vid2.getVel()
+                if v1 > 10:
+                    v1 = 0
+                if v2 > 10:
+                    v2 = 0
+                
+                if not v1 == 0 and not v2 == 0:
+                    self.telemetry[6] = (v1+v2)/2
+                elif not v1 == 0:
+                    self.telemetry[6] = v1
+                else:
+                    self.telemetry[6] = v2
+                
             else:
                 self.telemetry = [0, 0, 0, 0, 0, 0, 0]
             
             self.changeBars()   #Make sure this only runs on option 1 or 2 later
             self.updateInfo()
             self.updateStatus()
-            self.root.after(16, self.streamThread)
+            if self.uiLooping:
+                self.root.after(16, self.streamThread)
             
     # ========= UI Functions Buttons =======
+    def servo1(self, event):
+        value = int(self.serv1Entry.get())
+        self.sendCMD("S", value)
+        
+    def servo2(self, event):
+        value = int(self.serv2Entry.get())
+        self.sendCMD("D", value)
+        
+    def sendCMD(self, command, value):
+        msg = f"{command},{value}"
+        self.sock.sendto(msg.encode(), (self.PI_IP, self.PORT))
+        print(f"Sent: {msg}")
+        
     def print_size(self, event):    # Also resizes the photos
         self.xFrameWidth = event.width
         self.xFrameHeight = event.height
@@ -304,7 +354,7 @@ class Cam:
         else:
             f1 = self.vid1.getFrame()
             if f1 is not None:
-                frame = cv2.resize(f1, (self.xFrameWidth, self.xFrameHeight))
+                frame = cv2.resize(f1, (self.xFrameWidth, self.xFrameHeight), interpolation=cv2.INTER_NEAREST)
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
                 tk_img = ImageTk.PhotoImage(Image.fromarray(frame))
@@ -342,7 +392,11 @@ class Cam:
         if not hasattr(self, 'uiLooping') or not self.uiLooping:
             self.uiLooping = True
             self.streamThread()
-
+    
+    def setCon(self):
+        self.vid1.setCon(self.contourView.get())
+        self.vid2.setCon(self.contourView.get())
+    
     def endStream(self):
         self.cam1Status = False
         self.cam2Status = False
@@ -359,12 +413,14 @@ class Cam:
     
         self.cam1Label.config(text=f"Camera 1 Status: {self.cam1TxT}")
         self.cam2Label.config(text=f"Camera 2 Status: {self.cam2TxT}")
-        
-    def updateTelemetry(self):
-        print("Not implemented yet")
     
     def exitApp(self):
+        self.uiLooping = False
+        if hasattr(self, 'vid1'): self.vid1.endStream()
+        if hasattr(self, 'vid2'): self.vid2.endStream()
+        self.root.quit()
         self.root.destroy()
+
         
     # Makes sure it stays 16/9
     def resize_main(self, event):
@@ -417,16 +473,11 @@ class Cam:
         self.vid2.setMode(2)
         self.mode = 2
     
-    def setMode4(self): #Rotation Cam
+    def setMode4(self): #Contour Ellipse Cam
         self.vid1.setMode(3)
         self.vid2.setMode(3)
         self.mode = 3
-    
-    def setMode5(self): #Contour Rotation Cam
-        self.vid1.setMode(4)
-        self.vid2.setMode(4)
-        self.mode = 4
-        
+            
     def createUI(self, event):
         # Canvas
         #718 x 382 (on laptop)
@@ -549,8 +600,8 @@ class Cam:
         xPos = self.telemetry[0]    #Im assuming it will be in cm?
         yPos = self.telemetry[1]
         zPos = self.telemetry[2]
-        xRot = self.telemetry[3]*100    #Im assuming in radians?
-        yRot = self.telemetry[4]*100
+        xRot = self.telemetry[3]*200    #Im assuming in radians?
+        yRot = self.telemetry[4]*200
         zRot = self.telemetry[5]
         zVel = self.telemetry[6]*10
         

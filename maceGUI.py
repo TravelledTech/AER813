@@ -19,6 +19,7 @@ class Cam:
     def __init__(self, root):
         
         #========== Initial Variables ==========
+        self.sendTime = 1.0/20  #Sends the rotation data every 20hz
         
         self.timeH = [] # Used for angular velocity calculation
         self.angleH = []
@@ -286,8 +287,8 @@ class Cam:
                      self.calcMetrics()
                 
                 # packet limiter (currently sending at 30hz)
-                 if currentTime - self.last_send >= 0.033:
-                     self.sentDualData(-self.telemetry[4], self.telemetry[6])
+                 if currentTime - self.last_send >= self.sendTime:
+                     self.sendData("T", self.telemetry[5])
                      self.last_send = currentTime
  
             else:
@@ -302,20 +303,12 @@ class Cam:
             self.root.after(16, self.streamThread)
     
     def sendData(self, label, value):
-        message = f"{label}{value}\n"
+        message = f"{label}={value}\n"
         try:
             if self.ser and self.ser.is_open:
                 # Format: "A0.15\n"
-                packet = f"{label}{value:.4f}\n" 
+                packet = f"{label}={value:.4f}\n" 
                 self.ser.write(packet.encode())
-        except Exception as e:
-            print(f"Serial Error: {e}")
-            
-    def sentDualData(self, angl, vel):
-        message = f"<{angl:.4f},{vel:.4f}>\n"
-        try:
-            if self.ser and self.ser.is_open:
-                self.ser.write(message.encode())
         except Exception as e:
             print(f"Serial Error: {e}")
     
