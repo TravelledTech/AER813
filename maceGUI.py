@@ -56,8 +56,8 @@ class Cam:
         # [9] Settling time
         
         # ========== CHANGE THIS DEPENDIGN ON WHICH PORT THE ARDUINO IS IN =========
-        PORT = 'COM4' 
-        BAUD = 115200
+        # PORT = 'COM4' 
+        # BAUD = 115200
         
         try:
             self.ser = serial.Serial(PORT, BAUD, timeout=0.1, write_timeout=0)
@@ -154,17 +154,17 @@ class Cam:
                                 text = "Reset Plot",
                                 command = self.resetPlot).pack(fill="x")
         
-        self.kpEntry = ttk.Entry(buttonFrame)
-        self.kpEntry.pack(fill="x")
-        self.kpEntry.bind("<Return>", self.Kp)
+        # self.kpEntry = ttk.Entry(buttonFrame)
+        # self.kpEntry.pack(fill="x")
+        # self.kpEntry.bind("<Return>", self.Kp)
         
-        self.kiEntry = ttk.Entry(buttonFrame)
-        self.kiEntry.pack(fill="x")
-        self.kiEntry.bind("<Return>", self.Ki)
+        # self.kiEntry = ttk.Entry(buttonFrame)
+        # self.kiEntry.pack(fill="x")
+        # self.kiEntry.bind("<Return>", self.Ki)
         
-        self.kdEntry = ttk.Entry(buttonFrame)
-        self.kdEntry.pack(fill="x")
-        self.kdEntry.bind("<Return>", self.Kd)
+        # self.kdEntry = ttk.Entry(buttonFrame)
+        # self.kdEntry.pack(fill="x")
+        # self.kdEntry.bind("<Return>", self.Kd)
         
         self.mode_var = tk.StringVar(value=0)
         self.mode = 0
@@ -184,6 +184,13 @@ class Cam:
             command=self.setMode2
         ).pack(anchor="w", pady=2)
 
+        ttk.Radiobutton(
+            buttonFrame,
+            text="AprilTag",
+            variable=self.mode_var,
+            value=2,
+            command=self.setMode3
+        ).pack(anchor="w", pady=2)
         
         text = (
             f"\nX-Position: \t\t{self.telemetry[0]:.2f}\n"
@@ -249,7 +256,7 @@ class Cam:
     def streamThread(self):
         if self.cam1Status:
             self.setFrame()
-            if self.mode == 1:
+            if self.mode == 1 or self.mode == 2:
                  pos = self.vid1.getPos()
                  rot = self.vid1.getRot()
                  self.telemetry[0] = pos[0]
@@ -296,7 +303,7 @@ class Cam:
                 
                 # packet limiter (currently sending at 30hz)
                  if currentTime - self.last_send >= self.sendTime:
-                     self.sendData("T", np.rad2deg(-self.telemetry[4]))
+                     # self.sendData("T", np.rad2deg(-self.telemetry[4]))
                      self.last_send = currentTime
  
             else:
@@ -310,23 +317,23 @@ class Cam:
             self.updateStatus()
             self.root.after(16, self.streamThread)
     
-    def sendData(self, label, value):
-        try:
-            # Force it to a standard Python float to strip any hidden Numpy array formatting
-            clean_value = float(np.squeeze(value))
+    # def sendData(self, label, value):
+    #     try:
+    #         # Force it to a standard Python float to strip any hidden Numpy array formatting
+    #         clean_value = float(np.squeeze(value))
             
-            if self.ser and self.ser.is_open:
-                # Format it strictly
-                packet = f"{label}={clean_value:.4f}\n" 
+    #         if self.ser and self.ser.is_open:
+    #             # Format it strictly
+    #             packet = f"{label}={clean_value:.4f}\n" 
                 
-                # Send it as strict ASCII
-                self.ser.write(packet.encode('ascii'))
+    #             # Send it as strict ASCII
+    #             self.ser.write(packet.encode('ascii'))
                 
-                # FORCE PYTHON TO CONFESS WHAT IT SENT
-                print(f"PYTHON SENT: '{packet.strip()}'") 
+    #             # FORCE PYTHON TO CONFESS WHAT IT SENT
+    #             print(f"PYTHON SENT: '{packet.strip()}'") 
                 
-        except Exception as e:
-            print(f"Serial Error in sendData: {e}")
+    #     except Exception as e:
+    #         print(f"Serial Error in sendData: {e}")
     
     def updatePlots(self):
         # 1. Push the updated lists to the line object
@@ -509,24 +516,28 @@ class Cam:
     def setMode2(self): #Ellipse Cam
         self.vid1.setMode(1)
         self.mode = 1
+        
+    def setMode3(self): #Ellipse Cam
+        self.vid1.setMode(2)
+        self.mode = 2
     
-    def Kp(self, event):
-        value = self.kpEntry.get()
-        value = float(value)
+    # def Kp(self, event):
+    #     value = self.kpEntry.get()
+    #     value = float(value)
         
-        self.sendData("KP", value)
+    #     self.sendData("KP", value)
         
-    def Ki(self, event):
-        value = self.kiEntry.get()
-        value = float(value)
+    # def Ki(self, event):
+    #     value = self.kiEntry.get()
+    #     value = float(value)
         
-        self.sendData("KI", value)
+    #     self.sendData("KI", value)
         
-    def Kd(self, event):
-        value = self.kdEntry.get()
-        value = float(value)
+    # def Kd(self, event):
+    #     value = self.kdEntry.get()
+    #     value = float(value)
         
-        self.sendData("KD", value)
+    #     self.sendData("KD", value)
         
     def createUI(self, event):
         # Canvas

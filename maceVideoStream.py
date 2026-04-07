@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import threading
 import json
+from pupil_apriltags import Detector
 
 class video:
     def __init__(self, URL):
@@ -34,6 +35,7 @@ class video:
         self.detector = cv2.aruco.ArucoDetector(aruco_dict, parameters)
         
         MARKER_SIZE = 0.1
+        self.MARKER_SIZE=MARKER_SIZE
         
         self.obj_points = np.array([
             [-MARKER_SIZE/2,  MARKER_SIZE/2, 0],
@@ -44,6 +46,9 @@ class video:
         
         self.Position = [0, 0, 0]
         self.Rotation = [0, 0, 0]
+        
+        self.at_params = [self.mtx[0,0], self.mtx[1,1], self.mtx[0,2], self.mtx[1,2]]
+        self.at_detector = Detector(families='tag25h9', nthreads=1, quad_decimate=1.0)
         
 
     # Runs the streaming thread (all camera stuff will happen here)
@@ -68,8 +73,10 @@ class video:
         if self.mode == 0:      #Normal
             self.output = frame
             
-        elif self.mode == 1:    # Ellipse
+        elif self.mode == 1:    # ArUco
             self.output = self.ArUco(grey, frame)
+        elif self.mode == 2:    # AprilTag
+            self.output = self.AprilTag(grey, frame)
             
     
     def ArUco(self, grey, frame):
@@ -114,7 +121,38 @@ class video:
                 
         return frame
                 
-                
+    def AprilTag(self, grey, frame):
+        # 1. Detect Tags
+        # estimate_tag_pose=True uses the camera_params to find 3D position
+        results = self.at_detector.detect(grey, estimate_tag_pose=True, 
+                                          camera_params=self.at_params, 
+                                          tag_size=self.MARKER_SIZE)
+
+        for tag in results:
+            # AprilTag gives us the Rotation Matrix (rmat) and Translation (tvec) directly
+            rmat = tag.pose_R
+            tvec = tag.pose_t.flatten()
+
+            # Convert rmat back to rvec for the OpenCV drawing function
+            rvec, _ = cv2.Rodrigues(rmat)
+            cv2.drawFrameAxes(frame, self.mtx, self.dist, rvec, tvec, 0.05)
+
+            # --- Match your ArUco math exactly ---
+            # Apply your flip matrix
+            flip_matrix = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
+            rmat_flipped = rmat @ flip_matrix
+            
+            # Extract Euler Angles (Same as your ArUco logic)
+            pitch = -np.arcsin(np.clip(-rmat_flipped[1, 2], -1.0, 1.0))
+            yaw = np.arctan2(rmat_flipped[0, 2], rmat_flipped[2, 2])
+            roll = np.arctan2(rmat_flipped[1, 0], rmat_flipped[1, 1])
+            
+            yaw = np.arctan2(np.sin(yaw + np.pi), np.cos(yaw + np.pi))
+            
+            self.Rotation = [pitch, yaw, roll]
+            self.Position = [-tvec[0], -tvec[1], tvec[2]]
+
+        return frame
     
     # Starts Stream (Change camera info here)         
     def startStream(self):
