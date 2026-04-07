@@ -16,10 +16,10 @@ import control
 
 # ===== Main =====
 class Cam:
-    def __init__(self, root):
+    def __init__(self, root):   
         
         #========== Initial Variables ==========
-        self.sendTime = 1.0/20  #Sends the rotation data every 20hz
+        self.sendTime = 1.0/10  #Sends the rotation data every 10hz
         
         self.timeH = [] # Used for angular velocity calculation
         self.angleH = []
@@ -58,7 +58,15 @@ class Cam:
         # ========== CHANGE THIS DEPENDIGN ON WHICH PORT THE ARDUINO IS IN =========
         PORT = 'COM4' 
         BAUD = 115200
-        self.ser = serial.Serial(PORT, BAUD, timeout=0.1, write_timeout=0)
+        
+        try:
+            self.ser = serial.Serial(PORT, BAUD, timeout=0.1, write_timeout=0)
+            time.sleep(1.5) # Give the Arduino time to reboot after connection
+            print(f"Successfully connected to {PORT}")
+        except Exception as e:
+            print(f"Serial connection failed: {e}")
+            self.ser = None
+            
         
         self.root.bind("<Configure>", self.resize_main)
         
@@ -288,7 +296,7 @@ class Cam:
                 
                 # packet limiter (currently sending at 30hz)
                  if currentTime - self.last_send >= self.sendTime:
-                     self.sendData("T", self.telemetry[5])
+                     self.sendData("T", np.rad2deg(-self.telemetry[4]))
                      self.last_send = currentTime
  
             else:
@@ -303,14 +311,22 @@ class Cam:
             self.root.after(16, self.streamThread)
     
     def sendData(self, label, value):
-        message = f"{label}={value}\n"
         try:
+            # Force it to a standard Python float to strip any hidden Numpy array formatting
+            clean_value = float(np.squeeze(value))
+            
             if self.ser and self.ser.is_open:
-                # Format: "A0.15\n"
-                packet = f"{label}={value:.4f}\n" 
-                self.ser.write(packet.encode())
+                # Format it strictly
+                packet = f"{label}={clean_value:.4f}\n" 
+                
+                # Send it as strict ASCII
+                self.ser.write(packet.encode('ascii'))
+                
+                # FORCE PYTHON TO CONFESS WHAT IT SENT
+                print(f"PYTHON SENT: '{packet.strip()}'") 
+                
         except Exception as e:
-            print(f"Serial Error: {e}")
+            print(f"Serial Error in sendData: {e}")
     
     def updatePlots(self):
         # 1. Push the updated lists to the line object
@@ -498,19 +514,19 @@ class Cam:
         value = self.kpEntry.get()
         value = float(value)
         
-        self.sendData("P", value)
+        self.sendData("KP", value)
         
     def Ki(self, event):
         value = self.kiEntry.get()
         value = float(value)
         
-        self.sendData("I", value)
+        self.sendData("KI", value)
         
     def Kd(self, event):
         value = self.kdEntry.get()
         value = float(value)
         
-        self.sendData("D", value)
+        self.sendData("KD", value)
         
     def createUI(self, event):
         # Canvas
