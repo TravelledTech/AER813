@@ -66,7 +66,7 @@ class tele:
             y2 = np.sin(phi2)*np.sin(angle2)
             z2 = np.cos(phi2)
             
-            alpha = -np.arctan2(x1, z1)  #<This one is not fine
+            alpha = -np.arctan2(x1, z1)  #<This one is fine
             # alpha2 = np.arctan2(x2, z2)
             
             # if alpha1 >= alpha2:
@@ -74,7 +74,7 @@ class tele:
             # else:
             #     alpha = alpha1+np.deg2rad(15)
             
-            beta1 = np.arctan2(y1, z1)   #< this one is fine
+            beta1 = np.arctan2(y1, z1)   #< this one is not fine
             beta2 = np.arctan2(y2, z2)
             
             # if beta2 <= np.deg2rad(15):
@@ -82,10 +82,9 @@ class tele:
             # else:
             #     beta = beta1+np.deg2rad(15)
             #     alpha = -alpha
-            if beta1 >= beta2 or beta2 <= np.deg2rad(15):
-                beta = -beta1+np.deg2rad(15)
-            else:
-                beta = beta1+np.deg2rad(15)
+            
+            beta = (beta2**2 - beta1**2) / (4 * np.deg2rad(15))
+            if beta > np.deg2rad(15):
                 alpha = -alpha
             
             print(beta1, beta2)
@@ -94,6 +93,9 @@ class tele:
             
         else:
             return None
+        
+    def angleDiff(self, a, b):
+        return np.abs(np.arctan2(np.sin(a-b), np.cos(a-b)))
         
         
         

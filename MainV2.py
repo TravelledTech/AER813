@@ -290,7 +290,7 @@ class Cam:
                         self.telemetry[0] = temp[0]
                         self.telemetry[1] = temp[1]
                         self.telemetry[2] = temp[2]
-                        self.telemetry[3] = temp[4]
+                        self.telemetry[3] = -temp[4]
                         self.telemetry[4] = temp[3]
             
             elif self.mode == 2 or self.mode == 3:
